@@ -1,0 +1,6 @@
+{
+  "name": "MIKAN Procedural Marble Race",
+  "description": "A 5-minute multi-directional procedural marble race simulator inspired by MIKAN, featuring 14 customizable marble colors, electric elevators, kinetic stairs, boosters, and adaptive 16:9/9:16 viewports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
