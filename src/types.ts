@@ -1,5 +1,7 @@
 export type WeaponType = 'blaster' | 'shotgun' | 'rifle' | 'spread' | 'rapid' | 'bat' | 'sword';
 export type ZombieType = 'walker' | 'runner' | 'tank' | 'boss';
+export type CameraMode = 'follow' | 'half_pack' | 'leader' | 'overview';
+export type MapPower = 'emp' | 'barricade' | 'airdrop';
 
 export interface MarbleColorDef {
   id: string;
@@ -38,14 +40,10 @@ export interface Marble {
   finishPosition: number | null;
   currentCheckpointIdx: number;
   progressScore: number;
-  history: Array<{ x: number; y: number }>;
   stuckFrames?: number;
   lastX?: number;
   lastY?: number;
-  checkpointStallFrames?: number;
-  lastCheckpointIdx?: number;
   isZombie?: boolean;
-  isAlphaZombie?: boolean;
   zombieType?: ZombieType;
   zhp?: number;
   maxZhp?: number;
@@ -131,8 +129,6 @@ export interface CombatEvent {
   text: string;
   color: string;
   time: number;
-  icon?: string;
-  message?: string;
 }
 
 export interface HighlightEvent {
@@ -215,15 +211,6 @@ export interface Booster {
   forceY: number;
 }
 
-export interface EscalatorStep {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  boostX: number;
-  boostY: number;
-}
-
 export interface Piston {
   id: string;
   chunkId: number;
@@ -272,7 +259,7 @@ export interface SlowZone {
   y: number;
   w: number;
   h: number;
-  drag: number; // e.g., 0.08 removes 8% velocity per tick
+  drag: number;
   color?: string;
 }
 
@@ -282,7 +269,7 @@ export interface MagnetZone {
   x: number;
   y: number;
   r: number;
-  force: number; // >0 pulls in, <0 repels out
+  force: number;
   color?: string;
 }
 
@@ -377,7 +364,6 @@ export interface StageAnnouncement {
   x: number;
   y: number;
   themeColor?: string;
-  subtitle?: string;
 }
 
 export interface PathVerificationReport {
@@ -417,7 +403,6 @@ export interface TrackChunk {
   spinners: Spinner[];
   elevators: Elevator[];
   boosters: Booster[];
-  escalators: EscalatorStep[];
   pistons: Piston[];
   pendulums: Pendulum[];
   windZones: WindZone[];
@@ -431,7 +416,6 @@ export interface TrackChunk {
   crates: PickupCrate[];
   checkpoints: Checkpoint[];
   stages?: StageAnnouncement[];
-  spatialGrid?: unknown;
 }
 
 export interface CourseData {
@@ -442,7 +426,6 @@ export interface CourseData {
   spinners: Spinner[];
   elevators: Elevator[];
   boosters: Booster[];
-  escalators: EscalatorStep[];
   pistons: Piston[];
   pendulums: Pendulum[];
   windZones: WindZone[];
@@ -465,5 +448,41 @@ export interface CourseData {
   maxDistToFinish?: number;
   isPathVerified?: boolean;
   verificationReport?: PathVerificationReport;
-  spatialGrid?: unknown;
+}
+
+export interface FocusTrigger {
+  x: number;
+  y: number;
+  color: string;
+  text: string;
+  durationSec: number;
+}
+
+export interface FocusAnimState {
+  x: number;
+  y: number;
+  color: string;
+  text: string;
+  elapsed: number;
+  duration: number;
+}
+
+export interface ReplayClip {
+  event: HighlightEvent;
+  startT: number;
+  endT: number;
+}
+
+export interface ReplayPlaybackState {
+  clips: ReplayClip[];
+  clipIndex: number;
+  curT: number;
+}
+
+export interface DebugTelemetryStats {
+  fps: number;
+  worstMs: number;
+  physMs: number;
+  drawMs: number;
+  entities: number;
 }

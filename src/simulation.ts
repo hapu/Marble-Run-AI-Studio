@@ -8,14 +8,14 @@ import {
   CombatEvent,
   HighlightEvent,
   ReplayFrame,
+  FocusTrigger,
 } from './types';
 import {
   updateSimulation,
-  matterRaceEngine,
-  FocusTrigger,
+  rapierRaceEngine,
   initPhysicsEngine,
   isPhysicsReady,
-} from './physics';
+} from './physics/index';
 
 export { initPhysicsEngine, isPhysicsReady };
 
@@ -32,7 +32,7 @@ export interface SimulationCallbacks {
  */
 export class SimulationEngine {
   public static readonly FIXED_TIMESTEP = 1 / 120; // 8.333ms fixed physics tick
-  public static readonly MAX_ACCUMULATOR = 0.20; // 200ms cap
+  public static readonly MAX_ACCUMULATOR = 0.2; // 200ms cap
   public static readonly SUBSTEPS = 1; // Rapier natively runs CCD + 6 solver iterations per 120Hz tick
 
   private course: CourseData | null = null;
@@ -48,7 +48,7 @@ export class SimulationEngine {
     }
   }
 
-  public init(course: CourseData, marbles: Marble[]) {
+  public init(course: CourseData, marbles: Marble[]): void {
     this.course = course;
     this.marbles = marbles;
     this.raceTime = 0;
@@ -67,12 +67,12 @@ export class SimulationEngine {
     }
 
     if (isPhysicsReady()) {
-      matterRaceEngine.init(course, marbles);
+      rapierRaceEngine.init(course, marbles);
     }
   }
 
-  public dispose() {
-    matterRaceEngine.dispose();
+  public dispose(): void {
+    rapierRaceEngine.dispose();
   }
 
   public getCourse(): CourseData | null {
@@ -88,85 +88,85 @@ export class SimulationEngine {
   }
 
   public getProjectiles(): Projectile[] {
-    return matterRaceEngine.projectiles;
+    return rapierRaceEngine.projectiles;
   }
 
   public getParticles(): CombatParticle[] {
-    return matterRaceEngine.particles;
+    return rapierRaceEngine.particles;
   }
 
   public getFloatingTexts(): FloatingText[] {
-    return matterRaceEngine.floatingTexts;
+    return rapierRaceEngine.floatingTexts;
   }
 
   public getBarricades(): TemporaryBarricade[] {
-    return matterRaceEngine.barricades;
+    return rapierRaceEngine.barricades;
   }
 
   public getCombatFeed(): CombatEvent[] {
-    return matterRaceEngine.combatFeed;
+    return rapierRaceEngine.combatFeed;
   }
 
   public getActiveChunkCount(): number {
-    return matterRaceEngine.activeChunkIndices.length;
+    return rapierRaceEngine.activeChunkIndices.length;
   }
 
   public getActiveChunkIndices(): number[] {
-    return matterRaceEngine.activeChunkIndices;
+    return rapierRaceEngine.activeChunkIndices;
   }
 
-  public triggerEmp(x: number, y: number) {
-    matterRaceEngine.triggerEmpShockwave(x, y);
+  public triggerEmp(x: number, y: number): void {
+    rapierRaceEngine.triggerEmpShockwave(x, y);
   }
 
-  public deployBarricade(x: number, y: number) {
-    matterRaceEngine.deployBarricade(x, y);
+  public deployBarricade(x: number, y: number): void {
+    rapierRaceEngine.deployBarricade(x, y);
   }
 
-  public deployAirdrop(x: number, y: number) {
+  public deployAirdrop(x: number, y: number): void {
     if (this.course) {
-      matterRaceEngine.deployAirdrop(x, y, this.course);
+      rapierRaceEngine.deployAirdrop(x, y, this.course);
     }
   }
 
   public triggerBoost(marbleId: string): boolean {
-    return matterRaceEngine.triggerMarbleBoost(marbleId);
+    return rapierRaceEngine.triggerMarbleBoost(marbleId);
   }
 
   public triggerShield(marbleId: string): boolean {
-    return matterRaceEngine.triggerMarbleShield(marbleId);
+    return rapierRaceEngine.triggerMarbleShield(marbleId);
   }
 
   public triggerHeal(marbleId: string): boolean {
-    return matterRaceEngine.triggerMarbleHeal(marbleId);
+    return rapierRaceEngine.triggerMarbleHeal(marbleId);
   }
 
-  public setFollowedMarbleId(id: string | null) {
-    matterRaceEngine.followedMarbleId = id;
+  public setFollowedMarbleId(id: string | null): void {
+    rapierRaceEngine.followedMarbleId = id;
   }
 
   public consumePendingFocus(): FocusTrigger | null {
-    const f = matterRaceEngine.pendingFocus;
-    matterRaceEngine.pendingFocus = null;
+    const f = rapierRaceEngine.pendingFocus;
+    rapierRaceEngine.pendingFocus = null;
     return f;
   }
 
   public consumePendingDamageFlash(): boolean {
-    const f = matterRaceEngine.pendingDamageFlash;
-    matterRaceEngine.pendingDamageFlash = false;
+    const f = rapierRaceEngine.pendingDamageFlash;
+    rapierRaceEngine.pendingDamageFlash = false;
     return f;
   }
 
   public getReplayFrames(): ReplayFrame[] {
-    return matterRaceEngine.replayFrames;
+    return rapierRaceEngine.replayFrames;
   }
 
   public getHighlightEvents(): HighlightEvent[] {
-    return matterRaceEngine.highlightEvents;
+    return rapierRaceEngine.highlightEvents;
   }
 
   public getRoomDamageCounts(): Record<number, number> {
-    return matterRaceEngine.roomDamageCounts;
+    return rapierRaceEngine.roomDamageCounts;
   }
 
   public getRaceTime(): number {
@@ -194,9 +194,6 @@ export class SimulationEngine {
     return this.currentStageIndex;
   }
 
-  /**
-   * Calculates overall pack leader progress percentage [0, 100] using BFS labyrinth distance.
-   */
   public getLeaderProgressPercent(): number {
     if (!this.course || this.marbles.length === 0) {
       return 0;
@@ -257,7 +254,6 @@ export class SimulationEngine {
       this.accumulator -= fixedDt;
       stepsExecuted++;
 
-      // Room announcement when pack leader advances into a new labyrinth room
       const leader = this.getLeader();
       if (this.course && leader && leader.currentRoomId !== undefined) {
         const rIdx = leader.currentRoomId;
@@ -281,7 +277,7 @@ export class SimulationEngine {
     return stepsExecuted;
   }
 
-  public step(fixedDt = SimulationEngine.FIXED_TIMESTEP) {
+  public step(fixedDt = SimulationEngine.FIXED_TIMESTEP): void {
     if (!this.course || this.marbles.length === 0) return;
 
     for (let i = 0; i < this.marbles.length; i++) {
@@ -315,7 +311,7 @@ export class SimulationEngine {
     }
   }
 
-  public interpolate(alpha: number) {
+  public interpolate(alpha: number): void {
     for (let i = 0; i < this.marbles.length; i++) {
       const m = this.marbles[i];
       const px = m.prevX ?? m.x;

@@ -5,6 +5,9 @@ export const GRID_ROWS = 5;
 export const ROOM_SIZE = 500;
 export const SOCKET_WIDTH = 190;
 export const HALF_SW = SOCKET_WIDTH / 2; // 95px
+export const WORLD_W = ROOM_SIZE * GRID_COLS; // 2500px
+export const WORLD_H = ROOM_SIZE * GRID_ROWS; // 2500px
+export const DEFAULT_SEED = 'zombierun808';
 
 // All 14 marble colors with Spanish default names appropriate to each color
 export const DEFAULT_MARBLE_COLORS: MarbleColorDef[] = [
@@ -27,10 +30,10 @@ export const DEFAULT_MARBLE_COLORS: MarbleColorDef[] = [
 export const SIMULATION_SPEEDS = [0.5, 1, 2, 4] as const;
 
 export const CAMERA_MODES = [
-  { id: 'follow', label: 'Siguiendo Canica' },
-  { id: 'half_pack', label: 'Mitad del Grupo (Auto)' },
-  { id: 'leader', label: 'Líder de Carrera' },
-  { id: 'overview', label: 'Vista Completa' },
+  { id: 'follow', label: 'Seguir', description: 'Siguiendo Canica' },
+  { id: 'half_pack', label: 'Grupo', description: 'Mitad del Grupo (Auto)' },
+  { id: 'leader', label: 'Líder', description: 'Líder de Carrera' },
+  { id: 'overview', label: '5×5', description: 'Vista Completa' },
 ] as const;
 
 export interface WeaponSpec {

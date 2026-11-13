@@ -6,7 +6,6 @@ import {
   Spinner,
   Elevator,
   Booster,
-  EscalatorStep,
   Piston,
   Pendulum,
   WindZone,
@@ -25,10 +24,7 @@ import {
   RoomDoors,
   ZombieType,
 } from './types';
-import { SpatialHashGrid } from './physics';
-import { GRID_COLS, GRID_ROWS, ROOM_SIZE, SOCKET_WIDTH, HALF_SW } from './constants';
-
-export { GRID_COLS, GRID_ROWS, ROOM_SIZE, SOCKET_WIDTH, HALF_SW };
+import { DEFAULT_SEED, GRID_COLS, GRID_ROWS, ROOM_SIZE, HALF_SW } from './constants';
 
 export interface Point {
   x: number;
@@ -57,7 +53,6 @@ export class ChunkBuilder {
   public spinners: Spinner[] = [];
   public elevators: Elevator[] = [];
   public boosters: Booster[] = [];
-  public escalators: EscalatorStep[] = [];
   public pistons: Piston[] = [];
   public pendulums: Pendulum[] = [];
   public windZones: WindZone[] = [];
@@ -104,8 +99,7 @@ export class ChunkBuilder {
     globalIndex: number,
     stageName?: string,
     isFinish?: boolean,
-    themeColor?: string,
-    subtitle?: string
+    themeColor?: string
   ): Checkpoint {
     const chk: Checkpoint = {
       x: pos.x,
@@ -123,7 +117,6 @@ export class ChunkBuilder {
         x: pos.x,
         y: pos.y,
         themeColor,
-        subtitle,
       });
     }
 
@@ -212,7 +205,6 @@ export class ChunkBuilder {
       spinners: this.spinners,
       elevators: this.elevators,
       boosters: this.boosters,
-      escalators: this.escalators,
       pistons: this.pistons,
       pendulums: this.pendulums,
       windZones: this.windZones,
@@ -227,15 +219,6 @@ export class ChunkBuilder {
       checkpoints: this.checkpoints,
       stages: this.stages,
     };
-
-    const grid = new SpatialHashGrid(200);
-    for (let i = 0; i < this.walls.length; i++) {
-      grid.insertWall(this.walls[i]);
-    }
-    for (let i = 0; i < this.bumpers.length; i++) {
-      grid.insertBumper(this.bumpers[i]);
-    }
-    chunk.spatialGrid = grid;
 
     return chunk;
   }
@@ -268,7 +251,7 @@ class SeededRng {
   private nextFn: () => number;
 
   constructor(seedStr: string) {
-    const normalized = seedStr.trim() || 'zombierun808';
+    const normalized = seedStr.trim() || DEFAULT_SEED;
     this.nextFn = createMulberry32(hashSeed(normalized));
   }
 
@@ -558,8 +541,7 @@ function buildRoomInterior(
       curChk++,
       'INICIO: LABERINTO BIOHAZARD',
       false,
-      color,
-      'Salida instantánea · Sobrevive al laberinto 5×5'
+      color
     );
 
     // Smooth forward booster directing marbles cleanly into the opening corridor
@@ -612,8 +594,7 @@ function buildRoomInterior(
       curChk++,
       'META FINAL: BÚNKER DE EXTRACCIÓN',
       true,
-      '#22c55e',
-      'Santuario y refugio final'
+      '#22c55e'
     );
 
     // Welcoming inward boosters from whichever doorway enters Room 24 (never pushing back!)
@@ -1055,8 +1036,8 @@ function buildRoomInterior(
 // MAIN GENERATOR: ASSEMBLE 25-ROOM 5x5 BRANCHING SQUARE-ROOM LABYRINTH
 // =========================================================================
 
-export function generateCourse(seed: string = 'zombierun808'): CourseData {
-  const normalizedSeed = seed.trim() || 'zombierun808';
+export function generateCourse(seed: string = DEFAULT_SEED): CourseData {
+  const normalizedSeed = seed.trim() || DEFAULT_SEED;
   const rng = new SeededRng(normalizedSeed);
 
   const { nodes, maxDist } = generateLabyrinthGraph(rng);
@@ -1091,7 +1072,6 @@ export function generateCourse(seed: string = 'zombierun808'): CourseData {
   const spinners: Spinner[] = [];
   const elevators: Elevator[] = [];
   const boosters: Booster[] = [];
-  const escalators: EscalatorStep[] = [];
   const pistons: Piston[] = [];
   const pendulums: Pendulum[] = [];
   const windZones: WindZone[] = [];
@@ -1113,7 +1093,6 @@ export function generateCourse(seed: string = 'zombierun808'): CourseData {
     spinners.push(...ch.spinners);
     elevators.push(...ch.elevators);
     boosters.push(...ch.boosters);
-    escalators.push(...ch.escalators);
     pistons.push(...ch.pistons);
     pendulums.push(...ch.pendulums);
     windZones.push(...ch.windZones);
@@ -1148,7 +1127,6 @@ export function generateCourse(seed: string = 'zombierun808'): CourseData {
     spinners,
     elevators,
     boosters,
-    escalators,
     pistons,
     pendulums,
     windZones,
