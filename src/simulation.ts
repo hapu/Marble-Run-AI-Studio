@@ -3,6 +3,8 @@ import {
   Marble,
   Projectile,
   CombatParticle,
+  ShockwaveEffect,
+  MuzzleFlash,
   FloatingText,
   TemporaryBarricade,
   CombatEvent,
@@ -31,9 +33,9 @@ export interface SimulationCallbacks {
  * Continuous Collision Detection (CCD) and multi-iteration constraint solver.
  */
 export class SimulationEngine {
-  public static readonly FIXED_TIMESTEP = 1 / 120; // 8.333ms fixed physics tick
-  public static readonly MAX_ACCUMULATOR = 0.2; // 200ms cap
-  public static readonly SUBSTEPS = 1; // Rapier natively runs CCD + 6 solver iterations per 120Hz tick
+  public static readonly FIXED_TIMESTEP = 1 / 240; // 4.167ms fixed physics tick for ultra-reliable Rapier2D collisions
+  public static readonly MAX_ACCUMULATOR = 0.25; // 250ms cap
+  public static readonly SUBSTEPS = 1; // Rapier natively runs 8 CCD substeps + 10 solver iterations per 240Hz tick
 
   private course: CourseData | null = null;
   private marbles: Marble[] = [];
@@ -93,6 +95,14 @@ export class SimulationEngine {
 
   public getParticles(): CombatParticle[] {
     return rapierRaceEngine.particles;
+  }
+
+  public getShockwaves(): ShockwaveEffect[] {
+    return rapierRaceEngine.shockwaves;
+  }
+
+  public getMuzzleFlashes(): MuzzleFlash[] {
+    return rapierRaceEngine.muzzleFlashes;
   }
 
   public getFloatingTexts(): FloatingText[] {
@@ -155,6 +165,12 @@ export class SimulationEngine {
     const f = rapierRaceEngine.pendingDamageFlash;
     rapierRaceEngine.pendingDamageFlash = false;
     return f;
+  }
+
+  public consumePendingShake(): number {
+    const s = rapierRaceEngine.pendingShake;
+    rapierRaceEngine.pendingShake = 0;
+    return s;
   }
 
   public getReplayFrames(): ReplayFrame[] {

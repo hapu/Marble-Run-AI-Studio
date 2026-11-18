@@ -9,8 +9,10 @@ import { applyHumanDamage } from './combat';
 export function triggerEmpShockwave(ctx: PhysicsContext, targetX: number, targetY: number): void {
   sound.playEmpPower();
   ctx.addParticles(targetX, targetY, '#38bdf8', 24, 8);
+  ctx.addShockwave(targetX, targetY, 390, '#38bdf8', 0.48, 3.8);
+  ctx.pendingShake = Math.max(ctx.pendingShake, 5);
   ctx.addFloatingText(targetX, targetY - 20, '💥 ONDA EMP!', '#38bdf8');
-  ctx.addCombatEvent('⚡ COMANDANTE detonó ONDA EMP', '#38bdf8');
+  ctx.addCombatEvent('⚡ ONDA EMP detonada', '#38bdf8');
 
   for (let i = 0; i < ctx.lastMarbles.length; i++) {
     const m = ctx.lastMarbles[i];
@@ -261,10 +263,12 @@ export function updateActiveChunkZones(
           if (m.x >= tp.x && m.x <= tp.x + tp.w && m.y >= tp.y && m.y <= tp.y + tp.h) {
             m.tpCooldownUntil = raceTime + 1.6;
             ctx.addParticles(m.x, m.y, tp.color || '#a855f7', 12, 4.5);
+            ctx.addShockwave(m.x, m.y, 46, tp.color || '#a855f7', 0.3, 2.5);
             rb.setTranslation({ x: tp.tx * INV_SCALE, y: tp.ty * INV_SCALE }, true);
             const v = rb.linvel();
             rb.setLinvel({ x: v.x * 0.4, y: v.y * 0.4 }, true);
             ctx.addParticles(tp.tx, tp.ty, '#38bdf8', 12, 4.5);
+            ctx.addShockwave(tp.tx, tp.ty, 52, '#38bdf8', 0.32, 2.5);
             sound.playBoosterZap();
             ctx.addFloatingText(tp.tx, tp.ty - 16, '🌀 WARP!', '#c084fc');
           }
@@ -294,6 +298,7 @@ export function updateActiveChunkZones(
         if (stepNum !== kz.lastStep) {
           kz.lastStep = stepNum;
           kz.flashUntil = raceTime + 0.3;
+          ctx.addShockwave(kz.x + kz.w / 2, kz.y + kz.h / 2, 54, '#fde047', 0.28, 2.2);
           for (let mIdx = 0; mIdx < marbles.length; mIdx++) {
             const m = marbles[mIdx];
             if (m.finished || m.gone) continue;
@@ -348,8 +353,18 @@ export function updateActiveChunkZones(
             cz.triggered = true;
             sound.playEmpPower();
             ctx.addParticles(cz.spawnX, cz.spawnY, '#a855f7', 22, 6, 'slime');
+            ctx.addShockwave(cz.spawnX, cz.spawnY, 96, '#a855f7', 0.45, 3.0);
             ctx.addFloatingText(cz.spawnX, cz.spawnY - 22, `⚰️ ¡CRIPTA ABIERTA (+${cz.count})!`, '#c084fc');
-            ctx.addCombatEvent(`⚰️ ¡CRIPTA ABIERTA en ${chunk.name}!`, '#c084fc');
+            ctx.addCombatEvent(`⚰️ Cripta abierta en ${chunk.name}`, '#c084fc');
+            if (cz.count >= 4) {
+              ctx.pendingFocus = {
+                x: cz.spawnX,
+                y: cz.spawnY,
+                color: '#c084fc',
+                text: `⚰️ ¡EMBOSCADA EN ${chunk.name.toUpperCase()}!`,
+                durationSec: 1.0,
+              };
+            }
             for (let j = 0; j < cz.count; j++) {
               const zt: ZombieType =
                 j === 0 && cz.count >= 4 ? 'boss' : Math.random() < 0.25 ? 'runner' : Math.random() < 0.2 ? 'tank' : 'walker';
@@ -385,6 +400,7 @@ export function updateActiveChunkZones(
           if (crate.type === 'emp') {
             sound.playEmpBlast();
             ctx.addParticles(crate.x, crate.y, '#38bdf8', 16, 6);
+            ctx.addShockwave(crate.x, crate.y, 330, '#38bdf8', 0.42, 3.2);
             ctx.addFloatingText(crate.x, crate.y - 16, '⚡ EMP EXPANSIVO!', '#38bdf8');
             for (let j = 0; j < marbles.length; j++) {
               const other = marbles[j];

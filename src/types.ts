@@ -1,7 +1,9 @@
 export type WeaponType = 'blaster' | 'shotgun' | 'rifle' | 'spread' | 'rapid' | 'bat' | 'sword';
 export type ZombieType = 'walker' | 'runner' | 'tank' | 'boss';
-export type CameraMode = 'follow' | 'half_pack' | 'leader' | 'overview';
+export type CameraMode = 'smart' | 'follow' | 'half_pack' | 'leader' | 'overview';
 export type MapPower = 'emp' | 'barricade' | 'airdrop';
+export type ZombieAggroState = 'patrol' | 'alert';
+export type CastStatus = 'idle' | 'casting' | 'tv_fallback';
 
 export interface MarbleColorDef {
   id: string;
@@ -69,6 +71,11 @@ export interface Marble {
   weaponUpgradeTimer?: number;
   aimAngle?: number;
   currentRoomId?: number;
+  aggroState?: ZombieAggroState;
+  aggroTargetId?: string | null;
+  aggroUntil?: number;
+  aggroAlertAt?: number;
+  trail?: Array<{ x: number; y: number }>;
 }
 
 export interface Projectile {
@@ -100,6 +107,25 @@ export interface CombatParticle {
   maxLifetime: number;
   radius?: number;
   type?: 'spark' | 'slime' | 'plasma' | 'shockwave';
+}
+
+export interface ShockwaveEffect {
+  x: number;
+  y: number;
+  maxRadius: number;
+  color: string;
+  lifetime: number;
+  maxLifetime: number;
+  lineWidth?: number;
+}
+
+export interface MuzzleFlash {
+  x: number;
+  y: number;
+  angle: number;
+  color: string;
+  lifetime: number;
+  maxLifetime: number;
 }
 
 export interface FloatingText {
@@ -456,6 +482,7 @@ export interface FocusTrigger {
   color: string;
   text: string;
   durationSec: number;
+  silent?: boolean;
 }
 
 export interface FocusAnimState {
@@ -465,6 +492,7 @@ export interface FocusAnimState {
   text: string;
   elapsed: number;
   duration: number;
+  silent?: boolean;
 }
 
 export interface ReplayClip {

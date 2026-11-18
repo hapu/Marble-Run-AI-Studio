@@ -29,6 +29,79 @@ interface TacticalDockProps {
   bannerVisible: boolean;
 }
 
+interface AbilityButtonProps {
+  icon: React.ReactNode;
+  cooldown: number;
+  maxCooldown: number;
+  active?: boolean;
+  ringColor: string;
+  title: string;
+  onClick: () => void;
+}
+
+const TransparentAbilityButton: React.FC<AbilityButtonProps> = ({
+  icon,
+  cooldown,
+  maxCooldown,
+  active = false,
+  ringColor,
+  title,
+  onClick,
+}) => {
+  const onCd = cooldown > 0;
+  const ratio = onCd ? Math.max(0, Math.min(1, cooldown / maxCooldown)) : 0;
+  const r = 18;
+  const c = 2 * Math.PI * r;
+  const offset = c * (1 - ratio);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={onCd}
+      title={title}
+      aria-label={title}
+      className={`relative w-11 h-11 rounded-full bg-transparent flex items-center justify-center transition-all duration-150 shrink-0 ${
+        onCd
+          ? 'opacity-40 cursor-not-allowed'
+          : active
+            ? 'bg-white/12 scale-110 cursor-pointer'
+            : 'hover:bg-white/10 hover:scale-105 active:scale-95 cursor-pointer'
+      }`}
+    >
+      <svg
+        width="44"
+        height="44"
+        viewBox="0 0 44 44"
+        className="absolute inset-0 pointer-events-none"
+      >
+        <circle
+          cx="22"
+          cy="22"
+          r={r}
+          fill="none"
+          stroke={active ? ringColor : 'rgba(255,255,255,0.16)'}
+          strokeWidth={active ? '2' : '1'}
+        />
+        {onCd && (
+          <circle
+            cx="22"
+            cy="22"
+            r={r}
+            fill="none"
+            stroke={ringColor}
+            strokeWidth="2"
+            strokeDasharray={c}
+            strokeDashoffset={offset}
+            transform="rotate(-90 22 22)"
+          />
+        )}
+      </svg>
+      <span className="relative z-10">{icon}</span>
+    </button>
+  );
+};
+
 export const TacticalDock: React.FC<TacticalDockProps> = ({
   isReplaying,
   replayHudText,
@@ -48,185 +121,87 @@ export const TacticalDock: React.FC<TacticalDockProps> = ({
 }) => {
   return (
     <>
-      {/* Replay Banner or Power Deployment Toast */}
       {isReplaying ? (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30">
           <button
             type="button"
             onClick={onStopReplay}
-            className="px-4 py-1.5 rounded-full bg-amber-500 text-slate-950 font-black text-xs shadow-2xl flex items-center gap-2 hover:bg-amber-400"
+            className="px-4 py-1.5 rounded-full bg-amber-500 text-slate-950 font-bold text-xs shadow-xl flex items-center gap-2 hover:bg-amber-400 whitespace-nowrap"
           >
             <Film size={14} />
-            <span>HIGHLIGHT {replayHudText} · Clic para saltar</span>
+            <span>{replayHudText} · Clic para saltar</span>
           </button>
         </div>
       ) : powerHint || selectedPower ? (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-          <div
-            className={`px-4 py-1.5 rounded-full border text-xs font-bold tracking-wide shadow-2xl backdrop-blur-md flex items-center gap-1.5 whitespace-nowrap ${
-              powerHint
-                ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500/60'
-                : 'bg-cyan-950/90 text-cyan-300 border-cyan-400/80 animate-pulse'
-            }`}
-          >
-            <Crosshair size={13} />
-            <span>
-              {powerHint ||
-                `CLIC EN PISTA PARA DESPLEGAR [${selectedPower?.toUpperCase()}] · [Esc] cancelar`}
-            </span>
+        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+          <div className="px-3 py-1 rounded-full bg-slate-950/60 backdrop-blur-sm border border-white/15 text-[11px] font-medium text-slate-100 flex items-center gap-1.5 whitespace-nowrap">
+            <Crosshair size={12} className="text-cyan-300" />
+            <span>{powerHint || 'Clic en el mapa para desplegar · Esc cancelar'}</span>
           </div>
+        </div>
+      ) : bannerVisible ? (
+        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 text-amber-200/90 font-semibold text-xs tracking-wide pointer-events-none transition-opacity duration-300 whitespace-nowrap drop-shadow-[0_1px_6px_rgba(0,0,0,0.95)]">
+          {stageBanner}
         </div>
       ) : null}
 
-      {/* Animated Stage Announcement Banner */}
+      {/* Transparent Icon-Only Ability Cluster */}
       {!isReplaying && (
-        <div
-          className={`absolute bottom-20 left-1/2 -translate-x-1/2 bg-slate-950/90 text-amber-300 font-bold px-5 py-1.5 rounded-full border border-amber-500/40 shadow-xl backdrop-blur-md text-xs tracking-wide pointer-events-none transition-all duration-300 whitespace-nowrap ${
-            bannerVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
-          }`}
-        >
-          {stageBanner}
-        </div>
-      )}
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2">
+          <TransparentAbilityButton
+            icon={<Flame size={18} className="text-amber-300 drop-shadow-[0_1px_4px_rgba(0,0,0,0.85)]" />}
+            cooldown={boostCooldown}
+            maxCooldown={8}
+            ringColor="#fbbf24"
+            title="[1] Turbo Boost"
+            onClick={() => onActivateTargetedPower('boost')}
+          />
+          <TransparentAbilityButton
+            icon={<ShieldCheck size={18} className="text-cyan-300 drop-shadow-[0_1px_4px_rgba(0,0,0,0.85)]" />}
+            cooldown={shieldCooldown}
+            maxCooldown={12}
+            ringColor="#38bdf8"
+            title="[2] Escudo"
+            onClick={() => onActivateTargetedPower('shield')}
+          />
+          <TransparentAbilityButton
+            icon={<Heart size={18} className="text-emerald-300 drop-shadow-[0_1px_4px_rgba(0,0,0,0.85)]" />}
+            cooldown={healCooldown}
+            maxCooldown={14}
+            ringColor="#4ade80"
+            title="[3] Curar"
+            onClick={() => onActivateTargetedPower('heal')}
+          />
 
-      {/* Dual Tactical Dock (Bottom Center): Targeted Powers [1-3] + Commander Powers [4-6] */}
-      {!isReplaying && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 max-w-[96%]">
-          <div className="bg-slate-950/92 backdrop-blur-md px-2 py-1.5 rounded-2xl border border-slate-700/80 shadow-[0_8px_32px_rgba(0,0,0,0.65)] flex items-center gap-1.5 overflow-x-auto">
-            <button
-              type="button"
-              onClick={() => onActivateTargetedPower('boost')}
-              disabled={boostCooldown > 0}
-              className={`relative px-2.5 py-1.5 rounded-xl border text-left transition-all flex items-center gap-1.5 whitespace-nowrap ${
-                boostCooldown > 0
-                  ? 'bg-slate-900/60 border-slate-800 text-slate-500 opacity-70 cursor-not-allowed'
-                  : 'bg-slate-900/90 border-amber-500/40 text-amber-200 hover:bg-amber-500/15'
-              }`}
-              title="[1] Turbo Boost en canica seguida (3s)"
-            >
-              <Flame size={14} className="text-amber-400 shrink-0" />
-              <span className="text-[11px] font-bold">Boost</span>
-              <span className="text-[9px] font-mono bg-slate-800 px-1 rounded text-amber-300">1</span>
-              {boostCooldown > 0 && (
-                <span className="absolute inset-0 bg-slate-950/80 rounded-xl flex items-center justify-center font-mono font-bold text-xs text-amber-400">
-                  {boostCooldown}s
-                </span>
-              )}
-            </button>
+          <div className="w-[1px] h-5 bg-white/15 mx-0.5" aria-hidden="true" />
 
-            <button
-              type="button"
-              onClick={() => onActivateTargetedPower('shield')}
-              disabled={shieldCooldown > 0}
-              className={`relative px-2.5 py-1.5 rounded-xl border text-left transition-all flex items-center gap-1.5 whitespace-nowrap ${
-                shieldCooldown > 0
-                  ? 'bg-slate-900/60 border-slate-800 text-slate-500 opacity-70 cursor-not-allowed'
-                  : 'bg-slate-900/90 border-cyan-500/40 text-cyan-200 hover:bg-cyan-500/15'
-              }`}
-              title="[2] Escudo energético en canica seguida (5s)"
-            >
-              <ShieldCheck size={14} className="text-cyan-400 shrink-0" />
-              <span className="text-[11px] font-bold">Escudo</span>
-              <span className="text-[9px] font-mono bg-slate-800 px-1 rounded text-cyan-300">2</span>
-              {shieldCooldown > 0 && (
-                <span className="absolute inset-0 bg-slate-950/80 rounded-xl flex items-center justify-center font-mono font-bold text-xs text-cyan-400">
-                  {shieldCooldown}s
-                </span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onActivateTargetedPower('heal')}
-              disabled={healCooldown > 0}
-              className={`relative px-2.5 py-1.5 rounded-xl border text-left transition-all flex items-center gap-1.5 whitespace-nowrap ${
-                healCooldown > 0
-                  ? 'bg-slate-900/60 border-slate-800 text-slate-500 opacity-70 cursor-not-allowed'
-                  : 'bg-slate-900/90 border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/15'
-              }`}
-              title="[3] Curar +2 HP a canica seguida"
-            >
-              <Heart size={14} className="text-emerald-400 shrink-0" />
-              <span className="text-[11px] font-bold">Curar</span>
-              <span className="text-[9px] font-mono bg-slate-800 px-1 rounded text-emerald-300">3</span>
-              {healCooldown > 0 && (
-                <span className="absolute inset-0 bg-slate-950/80 rounded-xl flex items-center justify-center font-mono font-bold text-xs text-emerald-400">
-                  {healCooldown}s
-                </span>
-              )}
-            </button>
-
-            <div className="w-[1px] h-6 bg-slate-700/70 mx-0.5 shrink-0" />
-
-            <button
-              type="button"
-              onClick={() => empCooldown <= 0 && onSelectMapPower('emp')}
-              disabled={empCooldown > 0}
-              className={`relative px-2.5 py-1.5 rounded-xl border text-left transition-all flex items-center gap-1.5 whitespace-nowrap ${
-                selectedPower === 'emp'
-                  ? 'bg-cyan-500/25 border-cyan-400 text-cyan-100'
-                  : empCooldown > 0
-                    ? 'bg-slate-900/60 border-slate-800 text-slate-500 opacity-70 cursor-not-allowed'
-                    : 'bg-slate-900/90 border-slate-700/80 text-slate-200 hover:border-cyan-400/70'
-              }`}
-              title="[4] Clic en mapa: Onda EMP que repele zombis"
-            >
-              <Zap size={14} className="text-cyan-400 shrink-0" />
-              <span className="text-[11px] font-bold">EMP</span>
-              <span className="text-[9px] font-mono bg-slate-800 px-1 rounded text-cyan-300">4</span>
-              {empCooldown > 0 && (
-                <span className="absolute inset-0 bg-slate-950/80 rounded-xl flex items-center justify-center font-mono font-bold text-xs text-amber-400">
-                  {empCooldown}s
-                </span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => barricadeCooldown <= 0 && onSelectMapPower('barricade')}
-              disabled={barricadeCooldown > 0}
-              className={`relative px-2.5 py-1.5 rounded-xl border text-left transition-all flex items-center gap-1.5 whitespace-nowrap ${
-                selectedPower === 'barricade'
-                  ? 'bg-blue-500/25 border-blue-400 text-blue-100'
-                  : barricadeCooldown > 0
-                    ? 'bg-slate-900/60 border-slate-800 text-slate-500 opacity-70 cursor-not-allowed'
-                    : 'bg-slate-900/90 border-slate-700/80 text-slate-200 hover:border-blue-400/70'
-              }`}
-              title="[5] Clic en mapa: Barricada láser (8s)"
-            >
-              <Shield size={14} className="text-blue-400 shrink-0" />
-              <span className="text-[11px] font-bold">Muro</span>
-              <span className="text-[9px] font-mono bg-slate-800 px-1 rounded text-blue-300">5</span>
-              {barricadeCooldown > 0 && (
-                <span className="absolute inset-0 bg-slate-950/80 rounded-xl flex items-center justify-center font-mono font-bold text-xs text-amber-400">
-                  {barricadeCooldown}s
-                </span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => airdropCooldown <= 0 && onSelectMapPower('airdrop')}
-              disabled={airdropCooldown > 0}
-              className={`relative px-2.5 py-1.5 rounded-xl border text-left transition-all flex items-center gap-1.5 whitespace-nowrap ${
-                selectedPower === 'airdrop'
-                  ? 'bg-amber-500/25 border-amber-400 text-amber-100'
-                  : airdropCooldown > 0
-                    ? 'bg-slate-900/60 border-slate-800 text-slate-500 opacity-70 cursor-not-allowed'
-                    : 'bg-slate-900/90 border-slate-700/80 text-slate-200 hover:border-amber-400/70'
-              }`}
-              title="[6] Clic en mapa: Caja de arma aleatoria"
-            >
-              <Package size={14} className="text-amber-400 shrink-0" />
-              <span className="text-[11px] font-bold">Caja</span>
-              <span className="text-[9px] font-mono bg-slate-800 px-1 rounded text-amber-300">6</span>
-              {airdropCooldown > 0 && (
-                <span className="absolute inset-0 bg-slate-950/80 rounded-xl flex items-center justify-center font-mono font-bold text-xs text-amber-400">
-                  {airdropCooldown}s
-                </span>
-              )}
-            </button>
-          </div>
+          <TransparentAbilityButton
+            icon={<Zap size={18} className="text-cyan-300 drop-shadow-[0_1px_4px_rgba(0,0,0,0.85)]" />}
+            cooldown={empCooldown}
+            maxCooldown={12}
+            active={selectedPower === 'emp'}
+            ringColor="#22d3ee"
+            title="[4] Onda EMP (clic en mapa)"
+            onClick={() => empCooldown <= 0 && onSelectMapPower('emp')}
+          />
+          <TransparentAbilityButton
+            icon={<Shield size={18} className="text-blue-300 drop-shadow-[0_1px_4px_rgba(0,0,0,0.85)]" />}
+            cooldown={barricadeCooldown}
+            maxCooldown={10}
+            active={selectedPower === 'barricade'}
+            ringColor="#60a5fa"
+            title="[5] Barricada (clic en mapa)"
+            onClick={() => barricadeCooldown <= 0 && onSelectMapPower('barricade')}
+          />
+          <TransparentAbilityButton
+            icon={<Package size={18} className="text-amber-300 drop-shadow-[0_1px_4px_rgba(0,0,0,0.85)]" />}
+            cooldown={airdropCooldown}
+            maxCooldown={15}
+            active={selectedPower === 'airdrop'}
+            ringColor="#f59e0b"
+            title="[6] Suministro (clic en mapa)"
+            onClick={() => airdropCooldown <= 0 && onSelectMapPower('airdrop')}
+          />
         </div>
       )}
     </>

@@ -8,6 +8,8 @@ class SoundSynthesizer {
   public enabled: boolean = true;
   private lastPopTime: number = 0;
   private lastZapTime: number = 0;
+  private lastShotTime: number = 0;
+  private lastHitTime: number = 0;
 
   public init() {
     if (typeof window === 'undefined') return;
@@ -307,6 +309,10 @@ class SoundSynthesizer {
     this.init();
     if (!this.ctx) return;
 
+    const now = performance.now();
+    if (now - this.lastShotTime < 55) return;
+    this.lastShotTime = now;
+
     try {
       const t = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -316,7 +322,7 @@ class SoundSynthesizer {
       osc.frequency.setValueAtTime(880, t);
       osc.frequency.exponentialRampToValueAtTime(220, t + 0.08);
 
-      gain.gain.setValueAtTime(0.04, t);
+      gain.gain.setValueAtTime(0.036, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
 
       osc.connect(gain);
@@ -335,6 +341,10 @@ class SoundSynthesizer {
     this.init();
     if (!this.ctx) return;
 
+    const now = performance.now();
+    if (now - this.lastHitTime < 45) return;
+    this.lastHitTime = now;
+
     try {
       const t = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -344,7 +354,7 @@ class SoundSynthesizer {
       osc.frequency.setValueAtTime(420, t);
       osc.frequency.exponentialRampToValueAtTime(140, t + 0.06);
 
-      gain.gain.setValueAtTime(0.05, t);
+      gain.gain.setValueAtTime(0.045, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
 
       osc.connect(gain);

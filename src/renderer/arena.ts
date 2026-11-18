@@ -9,6 +9,7 @@ function inBox(x: number, y: number, w: number, h: number, view: ViewBounds): bo
 export function renderLabyrinthGrid(
   ctx: CanvasRenderingContext2D,
   course: CourseData,
+  raceTime: number,
   view: ViewBounds
 ): void {
   if (!course.chunks || course.chunks.length === 0) return;
@@ -23,13 +24,13 @@ export function renderLabyrinthGrid(
     } else if (chunk.isFinish) {
       ctx.fillStyle = 'rgba(21, 128, 61, 0.16)';
     } else if (chunk.isDeadEnd) {
-      ctx.fillStyle = 'rgba(126, 34, 206, 0.11)';
+      ctx.fillStyle = 'rgba(126, 34, 206, 0.10)';
     } else {
       ctx.fillStyle = 'rgba(13, 18, 34, 0.72)';
     }
     ctx.fillRect(chunk.x + 8, chunk.y + 8, chunk.size - 16, chunk.size - 16);
 
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.025)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.022)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let gx = chunk.x + 100; gx < chunk.x + chunk.size; gx += 100) {
@@ -42,10 +43,11 @@ export function renderLabyrinthGrid(
     }
     ctx.stroke();
 
+    const midX = chunk.x + chunk.size / 2;
+    const midY = chunk.y + chunk.size / 2;
+
     if (chunk.doors) {
-      const midX = chunk.x + chunk.size / 2;
-      const midY = chunk.y + chunk.size / 2;
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.22)';
       ctx.lineWidth = 2;
       ctx.setLineDash([7, 7]);
       if (chunk.doors.n) {
@@ -75,19 +77,10 @@ export function renderLabyrinthGrid(
       ctx.setLineDash([]);
     }
 
+    // Animated BFS Floor Path Indicators pointing toward next optimal exit
     if (chunk.nextDir && !chunk.isFinish) {
-      const arrowX =
-        chunk.nextDir === 'e'
-          ? chunk.x + chunk.size - 36
-          : chunk.nextDir === 'w'
-            ? chunk.x + 36
-            : chunk.x + chunk.size / 2;
-      const arrowY =
-        chunk.nextDir === 's'
-          ? chunk.y + chunk.size - 36
-          : chunk.nextDir === 'n'
-            ? chunk.y + 36
-            : chunk.y + chunk.size / 2;
+      const dirX = chunk.nextDir === 'e' ? 1 : chunk.nextDir === 'w' ? -1 : 0;
+      const dirY = chunk.nextDir === 's' ? 1 : chunk.nextDir === 'n' ? -1 : 0;
       const angle =
         chunk.nextDir === 'e'
           ? 0
@@ -97,31 +90,53 @@ export function renderLabyrinthGrid(
               ? Math.PI
               : -Math.PI / 2;
 
-      ctx.save();
-      ctx.translate(arrowX, arrowY);
-      ctx.rotate(angle);
-      ctx.strokeStyle = 'rgba(34, 197, 94, 0.38)';
-      ctx.lineWidth = 2.5;
+      const laneColor = chunk.isDeadEnd ? '245, 158, 11' : '34, 197, 94';
+
+      // Subtle glowing guide track from center to doorway
+      ctx.strokeStyle = `rgba(${laneColor}, 0.14)`;
+      ctx.lineWidth = 10;
       ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.moveTo(-8, -11);
-      ctx.lineTo(5, 0);
-      ctx.lineTo(-8, 11);
+      ctx.moveTo(midX + dirX * 20, midY + dirY * 20);
+      ctx.lineTo(midX + dirX * (chunk.size / 2 - 14), midY + dirY * (chunk.size / 2 - 14));
       ctx.stroke();
-      ctx.restore();
+
+      // 3 sweeping animated chevrons moving toward the exit
+      const span = 185;
+      const chevronCount = 3;
+      for (let k = 0; k < chevronCount; k++) {
+        const t = (raceTime * 0.85 + k / chevronCount) % 1;
+        const dist = 28 + t * span;
+        const cx = midX + dirX * dist;
+        const cy = midY + dirY * dist;
+        const fade = Math.sin(t * Math.PI);
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(angle);
+        ctx.strokeStyle = `rgba(${laneColor}, ${(0.22 + fade * 0.52).toFixed(2)})`;
+        ctx.lineWidth = 2.6;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(-7, -10);
+        ctx.lineTo(5, 0);
+        ctx.lineTo(-7, 10);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
 
-    const labelText = `(${chunk.col + 1},${chunk.row + 1}) · ${chunk.name}${chunk.isDeadEnd ? ' · BOTÍN' : ''}`;
-    ctx.font = '800 9.5px Outfit, monospace';
-    const tw = ctx.measureText(labelText).width + 14;
-    ctx.fillStyle = 'rgba(10, 15, 30, 0.78)';
-    ctx.fillRect(chunk.x + 16, chunk.y + 16, tw, 20);
-    ctx.strokeStyle = chunk.themeColor ? `${chunk.themeColor}55` : 'rgba(255,255,255,0.12)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(chunk.x + 16, chunk.y + 16, tw, 20);
-    ctx.fillStyle = chunk.isFinish ? '#86efac' : chunk.isDeadEnd ? '#e9d5ff' : 'rgba(241, 245, 249, 0.75)';
+    // Quiet, compact corner coordinate & room name (no loud border box)
+    const labelText = `${chunk.col + 1},${chunk.row + 1} · ${chunk.name}`;
+    ctx.font = '700 9px Outfit, monospace';
+    ctx.fillStyle = chunk.isFinish
+      ? 'rgba(134, 239, 172, 0.72)'
+      : chunk.isDeadEnd
+        ? 'rgba(233, 213, 255, 0.62)'
+        : 'rgba(226, 232, 240, 0.45)';
     ctx.textAlign = 'left';
-    ctx.fillText(labelText, chunk.x + 23, chunk.y + 30);
+    ctx.fillText(labelText, chunk.x + 18, chunk.y + 26);
   }
   ctx.restore();
 }
@@ -144,10 +159,10 @@ export function renderZonesAndHazards(
     ctx.setLineDash([6, 4]);
     ctx.strokeRect(sz.x, sz.y, sz.w, sz.h);
     ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(250, 204, 21, 0.55)';
-    ctx.font = '800 10px Outfit, sans-serif';
+    ctx.fillStyle = 'rgba(250, 204, 21, 0.48)';
+    ctx.font = '700 9px Outfit, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('☣ LODO DENSO', sz.x + sz.w / 2, sz.y + sz.h / 2 + 4);
+    ctx.fillText('LODO', sz.x + sz.w / 2, sz.y + sz.h / 2 + 3);
     ctx.restore();
   }
 
@@ -184,9 +199,9 @@ export function renderZonesAndHazards(
     }
 
     ctx.fillStyle = baseColor;
-    ctx.font = '800 11px Outfit, sans-serif';
+    ctx.font = '700 9.5px Outfit, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(isPull ? '🧲 IMÁN (+)' : '💥 REPULSOR (-)', mag.x, mag.y - 34);
+    ctx.fillText(isPull ? 'IMÁN +' : 'REPULSOR -', mag.x, mag.y - 30);
     ctx.restore();
   }
 
@@ -737,23 +752,30 @@ export function renderWallsBumpersSpinners(
   if (fx + 200 >= view.minX && fx - 200 <= view.maxX && fy + 200 >= view.minY && fy - 200 <= view.maxY) {
     ctx.save();
     const pulseR = 115 + Math.sin(raceTime * 3) * 6;
-    ctx.fillStyle = 'rgba(34, 197, 94, 0.14)';
+    const beaconGrad = ctx.createRadialGradient(fx, fy, 10, fx, fy, pulseR);
+    beaconGrad.addColorStop(0, 'rgba(74, 222, 128, 0.28)');
+    beaconGrad.addColorStop(0.65, 'rgba(34, 197, 94, 0.12)');
+    beaconGrad.addColorStop(1, 'rgba(34, 197, 94, 0)');
+    ctx.fillStyle = beaconGrad;
     ctx.beginPath();
     ctx.arc(fx, fy, pulseR, 0, Math.PI * 2);
     ctx.fill();
 
+    ctx.save();
+    ctx.translate(fx, fy);
+    ctx.rotate(raceTime * 0.8);
     ctx.strokeStyle = '#4ade80';
-    ctx.lineWidth = 3;
-    ctx.setLineDash([10, 7]);
+    ctx.lineWidth = 2.8;
+    ctx.setLineDash([12, 8]);
     ctx.beginPath();
-    ctx.arc(fx, fy, 115, 0, Math.PI * 2);
+    ctx.arc(0, 0, 115, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.setLineDash([]);
+    ctx.restore();
 
-    ctx.font = '900 13px Outfit, system-ui, sans-serif';
+    ctx.font = '900 11px Outfit, system-ui, sans-serif';
     ctx.fillStyle = '#86efac';
     ctx.textAlign = 'center';
-    ctx.fillText('🏁 BÚNKER DE EXTRACCIÓN 🏁', fx, fy - 36);
+    ctx.fillText('EXTRACCIÓN', fx, fy - 40);
     ctx.restore();
   }
 }

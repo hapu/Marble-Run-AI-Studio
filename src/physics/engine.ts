@@ -4,6 +4,8 @@ import {
   CourseData,
   Projectile,
   CombatParticle,
+  ShockwaveEffect,
+  MuzzleFlash,
   FloatingText,
   TemporaryBarricade,
   CombatEvent,
@@ -54,6 +56,8 @@ export class RapierRaceEngine implements PhysicsContext {
   public activeChunkIndices: number[] = [];
   public projectiles: Projectile[] = [];
   public particles: CombatParticle[] = [];
+  public shockwaves: ShockwaveEffect[] = [];
+  public muzzleFlashes: MuzzleFlash[] = [];
   public floatingTexts: FloatingText[] = [];
   public barricades: TemporaryBarricade[] = [];
   public combatFeed: CombatEvent[] = [];
@@ -61,6 +65,7 @@ export class RapierRaceEngine implements PhysicsContext {
   public replayFrames: ReplayFrame[] = [];
   public pendingFocus: FocusTrigger | null = null;
   public pendingDamageFlash: boolean = false;
+  public pendingShake: number = 0;
   public followedMarbleId: string | null = null;
   public roomDamageCounts: Record<number, number> = {};
 
@@ -115,6 +120,36 @@ export class RapierRaceEngine implements PhysicsContext {
     }
   }
 
+  public addShockwave(
+    x: number,
+    y: number,
+    maxRadius: number,
+    color: string,
+    duration = 0.38,
+    lineWidth = 2.8
+  ): void {
+    this.shockwaves.push({
+      x,
+      y,
+      maxRadius,
+      color,
+      lifetime: duration,
+      maxLifetime: duration,
+      lineWidth,
+    });
+  }
+
+  public addMuzzleFlash(x: number, y: number, angle: number, color: string): void {
+    this.muzzleFlashes.push({
+      x,
+      y,
+      angle,
+      color,
+      lifetime: 0.085,
+      maxLifetime: 0.085,
+    });
+  }
+
   public addFloatingText(x: number, y: number, text: string, color: string): void {
     this.floatingTexts.push({
       id: Math.random().toString(36).substring(2, 7),
@@ -135,7 +170,7 @@ export class RapierRaceEngine implements PhysicsContext {
       color,
       time: this.lastRaceTime,
     });
-    if (this.combatFeed.length > 6) {
+    if (this.combatFeed.length > 3) {
       this.combatFeed.pop();
     }
   }
@@ -174,14 +209,16 @@ export class RapierRaceEngine implements PhysicsContext {
     this.lastMarbles = marbles;
 
     this.world = new RAPIER.World({ x: 0, y: 18.0 });
-    this.world.timestep = 1 / 120;
-    this.world.numSolverIterations = 6;
-    this.world.maxCcdSubsteps = 4;
+    this.world.timestep = 1 / 240;
+    this.world.numSolverIterations = 10;
+    this.world.maxCcdSubsteps = 8;
     this.eventQueue = new RAPIER.EventQueue(true);
 
     this.activeChunkIndices = [];
     this.projectiles = [];
     this.particles = [];
+    this.shockwaves = [];
+    this.muzzleFlashes = [];
     this.floatingTexts = [];
     this.barricades = [];
     this.combatFeed = [];
@@ -189,6 +226,7 @@ export class RapierRaceEngine implements PhysicsContext {
     this.replayFrames = [];
     this.pendingFocus = null;
     this.pendingDamageFlash = false;
+    this.pendingShake = 0;
     this.roomDamageCounts = {};
     this.simTickCounter = 0;
     this.firstFinisherRecorded = false;
@@ -344,6 +382,13 @@ export class RapierRaceEngine implements PhysicsContext {
       m.currentRoomId = rIdx;
       const room = course.chunks[rIdx];
 
+      // Sample 60Hz motion trail points (every 4 ticks at 240Hz)
+      if (this.simTickCounter % 4 === 0) {
+        if (!m.trail) m.trail = [];
+        m.trail.push({ x: px, y: py });
+        if (m.trail.length > 10) m.trail.shift();
+      }
+
       // Finish Bunker Extraction in Room 24
       if (!m.finished && rIdx === 24) {
         const distToFinish = Math.hypot(m.x - course.finishX, m.y - course.finishY);
@@ -360,6 +405,7 @@ export class RapierRaceEngine implements PhysicsContext {
             if (!this.firstFinisherRecorded && m.isExtracted) {
               this.firstFinisherRecorded = true;
               sound.playVictory();
+              this.addShockwave(m.x, m.y, 120, '#4ade80', 0.55, 3.8);
               this.highlightEvents.push({
                 t: raceTime,
                 marbleId: m.id,
@@ -395,8 +441,8 @@ export class RapierRaceEngine implements PhysicsContext {
       }
     }
 
-    // 7. Record 20Hz Compact Replay Snapshots
-    if (this.simTickCounter % 6 === 0 && this.replayFrames.length < 4000) {
+    // 7. Record 20Hz Compact Replay Snapshots (every 12 ticks at 240Hz)
+    if (this.simTickCounter % 12 === 0 && this.replayFrames.length < 4000) {
       this.replayFrames.push({
         t: raceTime,
         marbles: marbles.map((m) => ({

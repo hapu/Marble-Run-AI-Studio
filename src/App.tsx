@@ -8,7 +8,7 @@ import {
   Marble,
   ReplayPlaybackState,
 } from './types';
-import { DEFAULT_MARBLE_COLORS, DEFAULT_SEED } from './constants';
+import { DEFAULT_MARBLE_COLORS, DEFAULT_SEED, DEFAULT_SIM_SPEED } from './constants';
 import { sound } from './audio';
 import { generateCourse } from './courseGenerator';
 import { initPhysicsEngine, isPhysicsReady, SimulationEngine } from './simulation';
@@ -22,12 +22,14 @@ import {
   updateSmartCamera,
 } from './utils/raceHelpers';
 import { useViewportAspect } from './hooks/useViewportAspect';
-import { TopHud } from './components/TopHud';
+import { useCastSession } from './hooks/useCastSession';
+import { MinimalHud } from './components/MinimalHud';
+import { PauseMenu } from './components/PauseMenu';
 import { TacticalDock } from './components/TacticalDock';
+import { CastTheaterBar } from './components/CastTheaterBar';
 import { DebugOverlay } from './components/DebugOverlay';
 import { LabyrinthMapModal } from './components/LabyrinthMapModal';
 import { ResultsModal } from './components/ResultsModal';
-import { ControlSidebar } from './components/ControlSidebar';
 
 export default function App() {
   const defaultNamesMap = useMemo(() => {
@@ -42,11 +44,11 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>(DEFAULT_MARBLE_COLORS.map((c) => c.id));
   const [customNames, setCustomNames] = useState<Record<string, string>>(defaultNamesMap);
   const [seed, setSeed] = useState<string>(() => getInitialSeedFromHash());
-  const [simSpeed, setSimSpeed] = useState<number>(1);
+  const [simSpeed, setSimSpeed] = useState<number>(DEFAULT_SIM_SPEED);
   const [isPaused, setIsPaused] = useState<boolean>(false);
+  const [hudActive, setHudActive] = useState<boolean>(true);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
-  const [cameraMode, setCameraMode] = useState<CameraMode>('half_pack');
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+  const [cameraMode, setCameraMode] = useState<CameraMode>('smart');
   const [patientZeroCount, setPatientZeroCount] = useState<number>(1);
   const [physicsReady, setPhysicsReady] = useState<boolean>(() => isPhysicsReady());
 
@@ -110,13 +112,18 @@ export default function App() {
   const firstExtractTimeRef = useRef<number | null>(null);
 
   const isPausedRef = useRef<boolean>(false);
-  const simSpeedRef = useRef<number>(1);
-  const cameraModeRef = useRef<CameraMode>('half_pack');
+  const simSpeedRef = useRef<number>(DEFAULT_SIM_SPEED);
+  const cameraModeRef = useRef<CameraMode>('smart');
   const showSkylineRef = useRef<boolean>(true);
   const showParticlesRef = useRef<boolean>(true);
   const selectedPowerRef = useRef<MapPower | null>(null);
+  const showLabyrinthMapRef = useRef<boolean>(false);
   const winnerModalRef = useRef<Marble | null>(null);
   const summaryDismissedRef = useRef<boolean>(false);
+  const hoveredMarbleIdRef = useRef<string | null>(null);
+  const nameplateRevealRef = useRef<{ id: string; startMs: number; durationMs: number } | null>(null);
+  const isTvModeRef = useRef<boolean>(false);
+  const startRaceRef = useRef<(newSeed?: string, pzOverride?: number) => void>(() => {});
 
   isPausedRef.current = isPaused;
   simSpeedRef.current = simSpeed;
@@ -124,6 +131,7 @@ export default function App() {
   showSkylineRef.current = showSkyline;
   showParticlesRef.current = showParticles;
   selectedPowerRef.current = selectedPower;
+  showLabyrinthMapRef.current = showLabyrinthMap;
   winnerModalRef.current = winnerModal;
   summaryDismissedRef.current = summaryDismissed;
 
@@ -138,6 +146,7 @@ export default function App() {
   // FX & Replay Refs
   const focusAnimRef = useRef<FocusAnimState | null>(null);
   const damageFlashAlphaRef = useRef<number>(0);
+  const shakeIntensityRef = useRef<number>(0);
   const replayStateRef = useRef<ReplayPlaybackState | null>(null);
   const fpsSamplesRef = useRef({
     frames: 0,
@@ -152,6 +161,21 @@ export default function App() {
     canvasContainerRef,
     canvasRef
   );
+
+  const handleCastSyncSeed = useCallback((nextSeed: string) => {
+    setSeed(nextSeed);
+    startRaceRef.current(nextSeed);
+  }, []);
+
+  const {
+    isTvMode,
+    castStatus,
+    castHelperOpen,
+    setCastHelperOpen,
+    startCast,
+    exitTvMode,
+  } = useCastSession(seed, handleCastSyncSeed, updateAspect);
+  isTvModeRef.current = isTvMode;
 
   const flashToast = useCallback((msg: string, ms = 2200) => {
     setPowerHint(msg);
@@ -178,12 +202,27 @@ export default function App() {
     });
   }, [defaultNamesMap]);
 
-  const selectFollowMarble = useCallback((id: string | null, switchCam = false) => {
+  const selectFollowMarble = useCallback((id: string | null, focusOnSelect = false) => {
     setFollowedMarbleId(id);
     followedMarbleIdRef.current = id;
     simulationRef.current.setFollowedMarbleId(id);
-    if (switchCam && id) {
-      setCameraMode('follow');
+    nameplateRevealRef.current = id
+      ? { id, startMs: performance.now(), durationMs: 2400 }
+      : null;
+
+    if (focusOnSelect && id) {
+      const target = simulationRef.current.getMarbles().find((m) => m.id === id && !m.gone);
+      if (target && cameraModeRef.current === 'smart') {
+        focusAnimRef.current = {
+          x: target.renderX ?? target.x,
+          y: target.renderY ?? target.y,
+          color: target.color,
+          text: target.name,
+          elapsed: 0,
+          duration: 0.85,
+          silent: true,
+        };
+      }
     }
   }, []);
 
@@ -199,18 +238,6 @@ export default function App() {
     },
     [selectFollowMarble]
   );
-
-  const cycleCameraMode = useCallback(() => {
-    setCameraMode((cur) =>
-      cur === 'follow'
-        ? 'half_pack'
-        : cur === 'half_pack'
-          ? 'leader'
-          : cur === 'leader'
-            ? 'overview'
-            : 'follow'
-    );
-  }, []);
 
   const startRace = useCallback(
     (newSeed?: string, pzOverride?: number) => {
@@ -263,6 +290,7 @@ export default function App() {
     },
     [seed, selectedIds, customNames, patientZeroCount, selectFollowMarble]
   );
+  startRaceRef.current = startRace;
 
   const handleToggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -457,11 +485,67 @@ export default function App() {
       }
       if (best) {
         selectFollowMarble(best.id, true);
-        flashToast(`🎯 SIGUIENDO A ${best.name.toUpperCase()}`, 1600);
       }
     },
-    [activateMapPower, selectFollowMarble, stopHighlightReplay, flashToast]
+    [activateMapPower, selectFollowMarble, stopHighlightReplay]
   );
+
+  const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const screenX = (e.clientX - rect.left) * scaleX;
+    const screenY = (e.clientY - rect.top) * scaleY;
+    const worldX = (screenX - canvas.width / 2) / camRef.current.zoom + camRef.current.x;
+    const worldY = (screenY - canvas.height / 2) / camRef.current.zoom + camRef.current.y;
+
+    const marbles = simulationRef.current.getMarbles();
+    let bestId: string | null = null;
+    let bestD = 28;
+    for (let i = 0; i < marbles.length; i++) {
+      const m = marbles[i];
+      if (m.gone) continue;
+      const mx = m.renderX ?? m.x;
+      const my = m.renderY ?? m.y;
+      const d = Math.hypot(mx - worldX, my - worldY);
+      if (d < bestD) {
+        bestD = d;
+        bestId = m.id;
+      }
+    }
+    hoveredMarbleIdRef.current = bestId;
+  }, []);
+
+  const handleCanvasMouseLeave = useCallback(() => {
+    hoveredMarbleIdRef.current = null;
+  }, []);
+
+  // Auto-hide HUD after 3.5s of inactivity
+  useEffect(() => {
+    let timer = window.setTimeout(() => setHudActive(false), 3500);
+    const wakeHud = () => {
+      setHudActive(true);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setHudActive(false), 3500);
+    };
+    window.addEventListener('pointermove', wakeHud, { passive: true });
+    window.addEventListener('pointerdown', wakeHud, { passive: true });
+    window.addEventListener('keydown', wakeHud);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('pointermove', wakeHud);
+      window.removeEventListener('pointerdown', wakeHud);
+      window.removeEventListener('keydown', wakeHud);
+    };
+  }, []);
+
+  // Recalculate stage aspect when entering/exiting TV Theater Mode
+  useEffect(() => {
+    updateAspect();
+  }, [isTvMode, updateAspect]);
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -483,19 +567,29 @@ export default function App() {
       } else if (e.key === ' ') {
         e.preventDefault();
         setIsPaused((p) => !p);
+      } else if (e.key.toLowerCase() === 'p') {
+        setIsPaused((p) => !p);
       } else if (e.key.toLowerCase() === 'm') {
         setShowLabyrinthMap((v) => !v);
       } else if (e.key.toLowerCase() === 'd') {
         setShowDebugHud((v) => !v);
       } else if (e.key === 'Escape') {
-        setSelectedPower(null);
-        setShowLabyrinthMap(false);
-        if (replayStateRef.current) stopHighlightReplay();
+        if (isTvModeRef.current) {
+          exitTvMode();
+        } else if (selectedPowerRef.current) {
+          setSelectedPower(null);
+        } else if (showLabyrinthMapRef.current) {
+          setShowLabyrinthMap(false);
+        } else if (replayStateRef.current) {
+          stopHighlightReplay();
+        } else {
+          setIsPaused((p) => !p);
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activateTargetedPower, handleSelectMapPower, cycleFollowMarble, stopHighlightReplay]);
+  }, [activateTargetedPower, handleSelectMapPower, cycleFollowMarble, stopHighlightReplay, exitTvMode]);
 
   // Initial Race Boot (Async Rapier2D WASM Init)
   useEffect(() => {
@@ -577,8 +671,10 @@ export default function App() {
                 [],
                 {
                   followedMarbleId: hero?.id,
+                  hoveredMarbleId: hoveredMarbleIdRef.current,
                   showSkyline: showSkylineRef.current,
                   showParticles: showParticlesRef.current,
+                  isTvMode: isTvModeRef.current,
                   focusFx: hero
                     ? {
                         x: hero.x,
@@ -606,6 +702,7 @@ export default function App() {
             text: trigFocus.text,
             elapsed: 0,
             duration: trigFocus.durationSec,
+            silent: trigFocus.silent,
           };
         }
         if (sim.consumePendingDamageFlash()) {
@@ -615,6 +712,23 @@ export default function App() {
           damageFlashAlphaRef.current = Math.max(0, damageFlashAlphaRef.current - rawDt * 2.2);
         }
 
+        const trigShake = sim.consumePendingShake();
+        if (trigShake > 0) {
+          shakeIntensityRef.current = Math.min(8, Math.max(shakeIntensityRef.current, trigShake));
+        }
+        if (shakeIntensityRef.current > 0.05) {
+          shakeIntensityRef.current *= Math.pow(0.002, rawDt);
+        } else {
+          shakeIntensityRef.current = 0;
+        }
+        const shakeOffset =
+          shakeIntensityRef.current > 0.1
+            ? {
+                x: (Math.random() - 0.5) * 2 * shakeIntensityRef.current,
+                y: (Math.random() - 0.5) * 2 * shakeIntensityRef.current,
+              }
+            : undefined;
+
         let effectiveSimSpeed = simSpeedRef.current;
         let renderFocusFx: RenderFocusFx | null = null;
         if (focusAnimRef.current) {
@@ -622,13 +736,16 @@ export default function App() {
           if (focusAnimRef.current.elapsed >= focusAnimRef.current.duration) {
             focusAnimRef.current = null;
           } else {
-            effectiveSimSpeed = Math.min(effectiveSimSpeed, 0.3);
+            if (!focusAnimRef.current.silent) {
+              effectiveSimSpeed = Math.min(effectiveSimSpeed, 0.3);
+            }
             renderFocusFx = {
               x: focusAnimRef.current.x,
               y: focusAnimRef.current.y,
               color: focusAnimRef.current.color,
               text: focusAnimRef.current.text,
               progress: focusAnimRef.current.elapsed / focusAnimRef.current.duration,
+              silent: focusAnimRef.current.silent,
             };
           }
         }
@@ -674,6 +791,22 @@ export default function App() {
           virtualH
         );
 
+        let revealId: string | null = null;
+        let revealAlpha = 0;
+        if (nameplateRevealRef.current) {
+          const elapsedReveal = now - nameplateRevealRef.current.startMs;
+          if (elapsedReveal >= nameplateRevealRef.current.durationMs) {
+            nameplateRevealRef.current = null;
+          } else {
+            revealId = nameplateRevealRef.current.id;
+            const fadeStart = nameplateRevealRef.current.durationMs - 500;
+            revealAlpha =
+              elapsedReveal < fadeStart
+                ? 1
+                : Math.max(0, (nameplateRevealRef.current.durationMs - elapsedReveal) / 500);
+          }
+        }
+
         const tDrawStart = performance.now();
         const ctx = canvas.getContext('2d');
         if (ctx) {
@@ -694,10 +827,17 @@ export default function App() {
             sim.getCombatFeed(),
             {
               followedMarbleId: followedMarbleIdRef.current,
+              hoveredMarbleId: hoveredMarbleIdRef.current,
+              nameplateRevealId: revealId,
+              nameplateRevealAlpha: revealAlpha,
               showSkyline: showSkylineRef.current,
               showParticles: showParticlesRef.current,
               focusFx: renderFocusFx,
               damageFlashAlpha: damageFlashAlphaRef.current,
+              shockwaves: sim.getShockwaves(),
+              muzzleFlashes: sim.getMuzzleFlashes(),
+              shakeOffset,
+              isTvMode: isTvModeRef.current,
             }
           );
         }
@@ -813,20 +953,41 @@ export default function App() {
     [standings]
   );
 
+  const hudVisible =
+    hudActive ||
+    isPaused ||
+    Boolean(selectedPower) ||
+    Boolean(powerHint) ||
+    showLabyrinthMap ||
+    showDebugHud ||
+    Boolean(winnerModal);
+
   return (
-    <div className="flex w-screen h-screen bg-[#090b12] text-slate-100 font-sans overflow-hidden select-none">
+    <div
+      className={`flex w-screen h-screen text-slate-100 font-sans overflow-hidden select-none ${
+        isTvMode ? 'bg-black' : 'bg-[#090b12]'
+      }`}
+    >
       <main
         ref={stageWrapperRef}
-        className="flex-1 h-full flex items-center justify-center bg-[#07090f] relative overflow-hidden"
+        className={`flex-1 h-full flex items-center justify-center relative overflow-hidden ${
+          isTvMode ? 'bg-black' : 'bg-[#07090f]'
+        }`}
       >
         <div
           ref={canvasContainerRef}
-          className="relative bg-[#0d101b] rounded-xl shadow-[0_0_36px_rgba(0,0,0,0.85)] border border-slate-800/80 overflow-hidden"
+          className={`relative bg-[#0d101b] overflow-hidden ${
+            isTvMode
+              ? 'rounded-none border-0 shadow-none'
+              : 'rounded-xl shadow-[0_0_36px_rgba(0,0,0,0.85)] border border-slate-800/80'
+          }`}
         >
           <canvas
             ref={canvasRef}
             className="block w-full h-full"
             onClick={handleCanvasClick}
+            onMouseMove={handleCanvasMouseMove}
+            onMouseLeave={handleCanvasMouseLeave}
             style={{ cursor: selectedPower ? 'crosshair' : 'pointer' }}
           />
 
@@ -839,31 +1000,27 @@ export default function App() {
             </div>
           )}
 
-          <TopHud
-            hudTime={hudTime}
-            livingHumansCount={livingHumansCount}
-            extractedHumansCount={extractedHumansCount}
-            activeZombiesCount={activeZombiesCount}
-            hudLeader={hudLeader}
-            hudLeaderColor={hudLeaderColor}
-            hudProgress={hudProgress}
-            followedMarble={followedMarble}
-            onCycleFollow={cycleFollowMarble}
-            soundEnabled={soundEnabled}
-            onToggleSound={handleToggleSound}
-            isPaused={isPaused}
-            onTogglePause={() => setIsPaused((p) => !p)}
-            simSpeed={simSpeed}
-            onSelectSpeed={setSimSpeed}
-            cameraMode={cameraMode}
-            onCycleCameraMode={cycleCameraMode}
-            showLabyrinthMap={showLabyrinthMap}
-            onToggleLabyrinthMap={() => setShowLabyrinthMap((v) => !v)}
-            showDebugHud={showDebugHud}
-            onToggleDebugHud={() => setShowDebugHud((v) => !v)}
-            isFullscreen={isFullscreen}
-            onToggleFullscreen={toggleFullscreen}
-          />
+          {isTvMode ? (
+            <CastTheaterBar
+              hudTime={hudTime}
+              livingHumansCount={livingHumansCount}
+              activeZombiesCount={activeZombiesCount}
+              hudLeader={hudLeader}
+              hudLeaderColor={hudLeaderColor}
+              hudProgress={hudProgress}
+              hudVisible={hudVisible}
+              castHelperOpen={castHelperOpen}
+              onDismissHelper={() => setCastHelperOpen(false)}
+              onExitTvMode={exitTvMode}
+            />
+          ) : (
+            <MinimalHud
+              hudTime={hudTime}
+              followedMarble={followedMarble}
+              onCycleFollow={cycleFollowMarble}
+              onOpenPauseMenu={() => setIsPaused(true)}
+            />
+          )}
 
           {showDebugHud && (
             <DebugOverlay
@@ -877,23 +1034,79 @@ export default function App() {
             />
           )}
 
-          <TacticalDock
-            isReplaying={isReplaying}
-            replayHudText={replayHudText}
-            onStopReplay={stopHighlightReplay}
-            powerHint={powerHint}
-            selectedPower={selectedPower}
-            onSelectMapPower={handleSelectMapPower}
-            onActivateTargetedPower={activateTargetedPower}
-            boostCooldown={boostCooldown}
-            shieldCooldown={shieldCooldown}
-            healCooldown={healCooldown}
-            empCooldown={empCooldown}
-            barricadeCooldown={barricadeCooldown}
-            airdropCooldown={airdropCooldown}
-            stageBanner={stageBanner}
-            bannerVisible={bannerVisible}
-          />
+          {!isTvMode && !isPaused && (
+            <TacticalDock
+              isReplaying={isReplaying}
+              replayHudText={replayHudText}
+              onStopReplay={stopHighlightReplay}
+              powerHint={powerHint}
+              selectedPower={selectedPower}
+              onSelectMapPower={handleSelectMapPower}
+              onActivateTargetedPower={activateTargetedPower}
+              boostCooldown={boostCooldown}
+              shieldCooldown={shieldCooldown}
+              healCooldown={healCooldown}
+              empCooldown={empCooldown}
+              barricadeCooldown={barricadeCooldown}
+              airdropCooldown={airdropCooldown}
+              stageBanner={stageBanner}
+              bannerVisible={bannerVisible}
+            />
+          )}
+
+          {isPaused && !isTvMode && !winnerModal && !showLabyrinthMap && (
+            <PauseMenu
+              hudTime={hudTime}
+              livingHumansCount={livingHumansCount}
+              extractedHumansCount={extractedHumansCount}
+              activeZombiesCount={activeZombiesCount}
+              simSpeed={simSpeed}
+              onSelectSpeed={setSimSpeed}
+              cameraMode={cameraMode}
+              onSelectCameraMode={setCameraMode}
+              soundEnabled={soundEnabled}
+              onToggleSound={handleToggleSound}
+              showLabyrinthMap={showLabyrinthMap}
+              onToggleLabyrinthMap={() => setShowLabyrinthMap((v) => !v)}
+              showDebugHud={showDebugHud}
+              onToggleDebugHud={() => setShowDebugHud((v) => !v)}
+              isFullscreen={isFullscreen}
+              onToggleFullscreen={toggleFullscreen}
+              castStatus={castStatus}
+              onTriggerCast={startCast}
+              onResume={() => setIsPaused(false)}
+              onRestart={() => {
+                setIsPaused(false);
+                startRace();
+              }}
+              patientZeroCount={patientZeroCount}
+              onSelectPatientZero={(num) => {
+                setPatientZeroCount(num);
+                setIsPaused(false);
+                startRace(undefined, num);
+              }}
+              seed={seed}
+              onSeedChange={setSeed}
+              onRandomizeSeed={() => {
+                setIsPaused(false);
+                handleRandomizeSeed();
+              }}
+              onDailySeed={() => {
+                setIsPaused(false);
+                handleDailySeed();
+              }}
+              onCopySeedLink={handleCopySeedLink}
+              selectedIds={selectedIds}
+              customNames={customNames}
+              onToggleSelect={handleToggleSelect}
+              onNameChange={handleNameChange}
+              onSelectAll={handleSelectAll}
+              onResetNames={handleResetNames}
+              standings={standings}
+              followedMarbleId={followedMarbleId}
+              onFollowMarble={(id) => selectFollowMarble(id, true)}
+            />
+          )}
 
           {showLabyrinthMap && courseRef.current && (
             <LabyrinthMapModal
@@ -905,32 +1118,6 @@ export default function App() {
           )}
         </div>
       </main>
-
-      <ControlSidebar
-        sidebarOpen={sidebarOpen}
-        onToggleSidebar={setSidebarOpen}
-        onStartRace={startRace}
-        patientZeroCount={patientZeroCount}
-        onSelectPatientZero={(num) => {
-          setPatientZeroCount(num);
-          startRace(undefined, num);
-        }}
-        seed={seed}
-        onSeedChange={setSeed}
-        onRandomizeSeed={handleRandomizeSeed}
-        onDailySeed={handleDailySeed}
-        onCopySeedLink={handleCopySeedLink}
-        selectedIds={selectedIds}
-        customNames={customNames}
-        onToggleSelect={handleToggleSelect}
-        onNameChange={handleNameChange}
-        onSelectAll={handleSelectAll}
-        onResetNames={handleResetNames}
-        standings={standings}
-        followedMarbleId={followedMarbleId}
-        onFollowMarble={(id) => selectFollowMarble(id, true)}
-        activeChunkCount={activeChunkCount}
-      />
 
       {winnerModal && (
         <ResultsModal

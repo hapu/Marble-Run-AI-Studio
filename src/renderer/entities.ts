@@ -1,22 +1,68 @@
 import {
   CombatEvent,
   CombatParticle,
+  CourseData,
   FloatingText,
   Marble,
   Projectile,
   TemporaryBarricade,
   WeaponType,
 } from '../types';
-import { WEAPON_SPECS, ZOMBIE_SPECS } from '../constants';
+import { ROOM_SIZE, WEAPON_SPECS, ZOMBIE_SPECS } from '../constants';
 import { RenderOptions, ViewBounds } from './types';
+
+function drawMotionTrail(
+  ctx: CanvasRenderingContext2D,
+  m: Marble,
+  drawX: number,
+  drawY: number,
+  raceTime: number
+): void {
+  if (!m.trail || m.trail.length < 2) return;
+  const isBoosted = (m.turboTime && m.turboTime > raceTime) || (m.boostUntil && m.boostUntil > raceTime);
+  const trailColor = m.isZombie
+    ? m.aggroState === 'alert'
+      ? '#f43f5e'
+      : '#84cc16'
+    : isBoosted
+      ? '#fbbf24'
+      : m.color;
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const len = m.trail.length;
+  for (let i = 1; i < len; i++) {
+    const p0 = m.trail[i - 1];
+    const p1 = i === len - 1 ? { x: drawX, y: drawY } : m.trail[i];
+    const frac = i / len;
+    ctx.globalAlpha = frac * (isBoosted ? 0.55 : 0.28);
+    ctx.strokeStyle = trailColor;
+    ctx.lineWidth = Math.max(1.2, m.radius * (isBoosted ? 0.9 : 0.6) * frac);
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
 
 export function renderMarbles(
   ctx: CanvasRenderingContext2D,
   marbles: Marble[],
   raceTime: number,
   view: ViewBounds,
-  followedMarbleId?: string | null
+  followedMarbleId?: string | null,
+  hoveredMarbleId?: string | null,
+  course?: CourseData,
+  nameplateRevealId?: string | null,
+  nameplateRevealAlpha = 0
 ): void {
+  const marbleMap = new Map<string, Marble>();
+  for (let i = 0; i < marbles.length; i++) {
+    marbleMap.set(marbles[i].id, marbles[i]);
+  }
+
   for (let i = 0; i < marbles.length; i++) {
     const m = marbles[i];
     if (m.gone) continue;
@@ -24,47 +70,68 @@ export function renderMarbles(
     const drawX = m.renderX ?? m.x;
     const drawY = m.renderY ?? m.y;
     if (
-      drawX + 60 < view.minX ||
-      drawX - 60 > view.maxX ||
-      drawY + 60 < view.minY ||
-      drawY - 60 > view.maxY
+      drawX + 70 < view.minX ||
+      drawX - 70 > view.maxX ||
+      drawY + 70 < view.minY ||
+      drawY - 70 > view.maxY
     ) {
       continue;
     }
 
     const isFollowed = followedMarbleId === m.id;
+    const isHovered = hoveredMarbleId === m.id;
 
-    if (isFollowed) {
-      ctx.save();
-      ctx.translate(drawX, drawY);
-      ctx.rotate(raceTime * 1.8);
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2.2;
-      ctx.setLineDash([6, 5]);
-      ctx.beginPath();
-      ctx.arc(0, 0, m.radius + 11, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-    }
+    // 1. Crisp Neon Motion Trail
+    drawMotionTrail(ctx, m, drawX, drawY, raceTime);
 
+    // 2. Zombie Aggro Tether & Pulsing Aggro Ring
     if (m.isZombie) {
+      const isAlert = m.aggroState === 'alert';
       const zSpec = ZOMBIE_SPECS[m.zombieType || 'walker'];
+
+      if (isAlert && m.aggroTargetId) {
+        const tgt = marbleMap.get(m.aggroTargetId);
+        if (tgt && !tgt.gone && !tgt.finished && !tgt.isZombie) {
+          ctx.save();
+          ctx.strokeStyle = 'rgba(244, 63, 94, 0.24)';
+          ctx.lineWidth = 1.4;
+          ctx.setLineDash([4, 6]);
+          ctx.beginPath();
+          ctx.moveTo(drawX, drawY);
+          ctx.lineTo(tgt.renderX ?? tgt.x, tgt.renderY ?? tgt.y);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
       ctx.save();
-      const pulse = Math.sin(raceTime * 8 + drawX * 0.05) * 2.5;
-      ctx.fillStyle = m.zombieType === 'boss' ? 'rgba(168, 85, 247, 0.32)' : 'rgba(34, 197, 94, 0.25)';
+      const pulse = Math.sin(raceTime * (isAlert ? 11 : 4.5) + drawX * 0.04) * (isAlert ? 3 : 1.5);
+      if (isAlert) {
+        ctx.strokeStyle = 'rgba(244, 63, 94, 0.72)';
+        ctx.lineWidth = 2.0;
+        ctx.beginPath();
+        ctx.arc(drawX, drawY, m.radius + 6 + pulse, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.fillStyle =
+        m.zombieType === 'boss'
+          ? 'rgba(168, 85, 247, 0.28)'
+          : isAlert
+            ? 'rgba(244, 63, 94, 0.16)'
+            : 'rgba(34, 197, 94, 0.18)';
       ctx.beginPath();
-      ctx.arc(drawX, drawY, m.radius + 5 + pulse, 0, Math.PI * 2);
+      ctx.arc(drawX, drawY, m.radius + 4 + pulse * 0.5, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.strokeStyle = zSpec.border;
-      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = isAlert ? '#fb7185' : zSpec.border;
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
       for (let a = 0; a < 6; a++) {
-        const ang = (a * Math.PI) / 3 + raceTime * 3;
-        ctx.moveTo(drawX + Math.cos(ang) * (m.radius + 3), drawY + Math.sin(ang) * (m.radius + 3));
+        const ang = (a * Math.PI) / 3 + raceTime * (isAlert ? 4.2 : 2.2);
+        ctx.moveTo(drawX + Math.cos(ang) * (m.radius + 2), drawY + Math.sin(ang) * (m.radius + 2));
         ctx.lineTo(
-          drawX + Math.cos(ang) * (m.radius + 8 + pulse),
-          drawY + Math.sin(ang) * (m.radius + 8 + pulse)
+          drawX + Math.cos(ang) * (m.radius + 7 + pulse * 0.6),
+          drawY + Math.sin(ang) * (m.radius + 7 + pulse * 0.6)
         );
       }
       ctx.stroke();
@@ -78,18 +145,53 @@ export function renderMarbles(
       ctx.restore();
     }
 
-    if ((m.turboTime && m.turboTime > raceTime) || (m.boostUntil && m.boostUntil > raceTime)) {
+    // 3. Follow / Hover Target Ring + Exit Path Compass
+    if (isFollowed || isHovered) {
       ctx.save();
-      const spd = Math.hypot(m.vx, m.vy) || 1;
-      const backX = drawX - (m.vx / spd) * (m.radius + 6);
-      const backY = drawY - (m.vy / spd) * (m.radius + 6);
-      ctx.fillStyle = '#f59e0b';
+      ctx.translate(drawX, drawY);
+      ctx.rotate(raceTime * 1.8);
+      ctx.strokeStyle = isFollowed ? '#ffffff' : '#38bdf8';
+      ctx.lineWidth = isFollowed ? 2.2 : 1.6;
+      ctx.setLineDash([6, 5]);
       ctx.beginPath();
-      ctx.arc(backX, backY, 6 + Math.random() * 3, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.arc(0, 0, m.radius + 10, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.restore();
+
+      if (isFollowed && !m.finished && !m.isZombie && course && m.currentRoomId !== undefined) {
+        const rm = course.chunks[m.currentRoomId];
+        if (rm && rm.nextDir) {
+          const ex =
+            rm.nextDir === 'e'
+              ? rm.x + ROOM_SIZE - 16
+              : rm.nextDir === 'w'
+                ? rm.x + 16
+                : rm.x + ROOM_SIZE / 2;
+          const ey =
+            rm.nextDir === 's'
+              ? rm.y + ROOM_SIZE - 16
+              : rm.nextDir === 'n'
+                ? rm.y + 16
+                : rm.y + ROOM_SIZE / 2;
+          const navAng = Math.atan2(ey - drawY, ex - drawX);
+          const orbitR = m.radius + 19;
+          ctx.save();
+          ctx.translate(drawX + Math.cos(navAng) * orbitR, drawY + Math.sin(navAng) * orbitR);
+          ctx.rotate(navAng);
+          ctx.fillStyle = '#4ade80';
+          ctx.beginPath();
+          ctx.moveTo(6, 0);
+          ctx.lineTo(-4, -4);
+          ctx.lineTo(-2, 0);
+          ctx.lineTo(-4, 4);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
+      }
     }
 
+    // Drop Shadow
     ctx.save();
     ctx.globalAlpha = 0.35;
     ctx.fillStyle = '#05070f';
@@ -98,6 +200,7 @@ export function renderMarbles(
     ctx.fill();
     ctx.restore();
 
+    // Marble Body
     ctx.save();
     ctx.translate(drawX, drawY);
 
@@ -134,12 +237,19 @@ export function renderMarbles(
     const lookAngle = Math.atan2(m.vy, m.vx);
     const pupilX = Math.cos(lookAngle) * 1.5;
     const pupilY = Math.sin(lookAngle) * 1.5;
-    ctx.fillStyle = m.isZombie ? '#fef08a' : '#ffffff';
+    ctx.fillStyle = m.isZombie ? (m.aggroState === 'alert' ? '#fecdd3' : '#fef08a') : '#ffffff';
     ctx.beginPath();
     ctx.arc(-4, -1, 3, 0, Math.PI * 2);
     ctx.arc(4, -1, 3, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = m.zombieType === 'boss' ? '#a855f7' : m.isZombie ? '#dc2626' : '#0f172a';
+    ctx.fillStyle =
+      m.zombieType === 'boss'
+        ? '#a855f7'
+        : m.isZombie
+          ? m.aggroState === 'alert'
+            ? '#e11d48'
+            : '#dc2626'
+          : '#0f172a';
     ctx.beginPath();
     ctx.arc(-4 + pupilX, -1 + pupilY, 1.5, 0, Math.PI * 2);
     ctx.arc(4 + pupilX, -1 + pupilY, 1.5, 0, Math.PI * 2);
@@ -179,58 +289,107 @@ export function renderMarbles(
       ctx.fill();
     }
 
-    if (!m.finished) {
-      if (m.isZombie) {
-        const maxZ = m.maxZhp || 4;
-        const curZ = Math.max(0, m.zhp ?? maxZ);
-        if (curZ < maxZ || m.zombieType === 'tank' || m.zombieType === 'boss') {
-          const barW = Math.max(24, m.radius * 1.8);
-          const barY = -m.radius - 11;
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-          ctx.fillRect(-barW / 2, barY, barW, 3.5);
-          ctx.fillStyle = m.zombieType === 'boss' ? '#c084fc' : '#84cc16';
-          ctx.fillRect(-barW / 2, barY, barW * Math.min(1, curZ / maxZ), 3.5);
-        }
-      } else {
-        const pipW = 4.2;
-        const pipH = 3.2;
-        const pipGap = 1.2;
-        const totalW = 5 * pipW + 4 * pipGap;
-        const startX = -totalW / 2;
-        const startY = -m.radius - 12;
-
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-        ctx.fillRect(startX - 1.5, startY - 1.5, totalW + 3, pipH + 3);
-        const currentHp = Math.max(0, Math.min(5, m.hp));
-        for (let p = 0; p < 5; p++) {
-          const px = startX + p * (pipW + pipGap);
-          ctx.fillStyle =
-            p < currentHp
-              ? currentHp > 2
-                ? '#38bdf8'
-                : currentHp === 2
-                  ? '#f59e0b'
-                  : '#ef4444'
-              : 'rgba(239, 68, 68, 0.2)';
-          ctx.fillRect(px, startY, pipW, pipH);
-        }
+    // Crisp Aggro "!" Alert Sigil on Newly Alerted Zombies
+    if (m.isZombie && m.aggroState === 'alert' && m.aggroAlertAt !== undefined) {
+      const age = raceTime - m.aggroAlertAt;
+      if (age >= 0 && age < 0.95) {
+        const popScale = age < 0.15 ? 0.7 + (age / 0.15) * 0.45 : 1.0;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, 1 - Math.max(0, age - 0.55) / 0.4);
+        ctx.translate(0, -m.radius - 16 - age * 8);
+        ctx.scale(popScale, popScale);
+        ctx.font = '900 13px Outfit, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = '#090b12';
+        ctx.lineWidth = 3.5;
+        ctx.strokeText('!', 0, 0);
+        ctx.fillStyle = '#fb7185';
+        ctx.fillText('!', 0, 0);
+        ctx.restore();
       }
     }
 
-    const isNpc = m.id.startsWith('npc_');
-    if (!isNpc || m.zombieType === 'boss' || m.zombieType === 'tank' || isFollowed) {
+    // Intuitive Radial Health Disk / Ring (Zero numeric bars)
+    const showHealthDisk =
+      !m.finished &&
+      (isFollowed ||
+        isHovered ||
+        m.zombieType === 'boss' ||
+        m.zombieType === 'tank' ||
+        (!m.isZombie && m.hp < m.maxHp) ||
+        (m.isZombie && (m.zhp ?? 4) < (m.maxZhp ?? 4)));
+
+    if (showHealthDisk) {
+      ctx.save();
+      if (m.isZombie) {
+        const maxZ = Math.max(1, m.maxZhp || 4);
+        const curZ = Math.max(0, m.zhp ?? maxZ);
+        const ratio = Math.min(1, curZ / maxZ);
+        const diskR = m.radius + 4.5;
+        ctx.strokeStyle = 'rgba(15, 23, 42, 0.72)';
+        ctx.lineWidth = 3.2;
+        ctx.beginPath();
+        ctx.arc(0, 0, diskR, 0, Math.PI * 2);
+        ctx.stroke();
+
+        if (ratio > 0) {
+          ctx.strokeStyle = m.zombieType === 'boss' ? '#c084fc' : '#84cc16';
+          ctx.lineWidth = 2.8;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.arc(0, 0, diskR, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ratio);
+          ctx.stroke();
+        }
+      } else {
+        const maxHp = Math.max(1, m.maxHp || 5);
+        const currentHp = Math.max(0, Math.min(maxHp, m.hp));
+        const diskR = m.radius + 4.2;
+        const gapRad = 0.14;
+        const segRad = (Math.PI * 2) / maxHp;
+        const activeTone =
+          currentHp > 2 ? '#38bdf8' : currentHp === 2 ? '#f59e0b' : '#ef4444';
+
+        // Translucent radial pie-wedge behind missing/active health
+        ctx.fillStyle = currentHp <= 1 ? 'rgba(239, 68, 68, 0.18)' : 'rgba(15, 23, 42, 0.36)';
+        ctx.beginPath();
+        ctx.arc(0, 0, diskR + 1.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        for (let p = 0; p < maxHp; p++) {
+          const a0 = -Math.PI / 2 + p * segRad + gapRad / 2;
+          const a1 = -Math.PI / 2 + (p + 1) * segRad - gapRad / 2;
+          ctx.strokeStyle = p < currentHp ? activeTone : 'rgba(239, 68, 68, 0.24)';
+          ctx.lineWidth = 2.8;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.arc(0, 0, diskR, a0, a1);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    // Transient Selection Nameplate (appears when selected/hovered, then fades out cleanly)
+    const isRevealed = nameplateRevealId === m.id && nameplateRevealAlpha > 0.02;
+    if (isHovered || isRevealed) {
+      const nameAlpha = isHovered ? 1 : Math.max(0, Math.min(1, nameplateRevealAlpha));
+      ctx.save();
+      ctx.globalAlpha = nameAlpha;
       ctx.font = '700 10.5px Plus Jakarta Sans, system-ui, sans-serif';
       ctx.textAlign = 'center';
       let tag = m.name;
-      if (m.isExtracted) tag = `🛡️ ${m.name}`;
-      else if (m.zombieType === 'boss') tag = '👑 JEFE ALFA';
+      if (m.isExtracted) tag = `Salvado · ${m.name}`;
+      else if (m.zombieType === 'boss') tag = 'Jefe Alfa';
       else if (m.isZombie) tag = `☣ ${m.name}`;
-      else if (isFollowed) tag = `🎯 ${m.name}`;
-      else if (m.rank === 1) tag = `👑 ${m.name}`;
+
+      if (isHovered && !m.isZombie && !m.finished) {
+        const wSpec = WEAPON_SPECS[(m.weaponType || 'blaster') as WeaponType] || WEAPON_SPECS.blaster;
+        tag = `${tag} ${wSpec.icon}`;
+      }
 
       ctx.strokeStyle = '#090b12';
-      ctx.lineWidth = 3;
-      ctx.strokeText(tag, 0, -m.radius - 17);
+      ctx.lineWidth = 3.2;
+      ctx.strokeText(tag, 0, -m.radius - 15);
       ctx.fillStyle =
         m.zombieType === 'boss'
           ? '#e9d5ff'
@@ -238,8 +397,11 @@ export function renderMarbles(
             ? '#86efac'
             : m.isExtracted
               ? '#fef08a'
-              : '#ffffff';
-      ctx.fillText(tag, 0, -m.radius - 17);
+              : isHovered
+                ? '#7dd3fc'
+                : '#ffffff';
+      ctx.fillText(tag, 0, -m.radius - 15);
+      ctx.restore();
     }
 
     ctx.restore();
@@ -256,6 +418,54 @@ export function renderCombatVfx(
   view: ViewBounds,
   options: RenderOptions
 ): void {
+  // Expanding Shockwave Rings
+  if (options.shockwaves) {
+    for (let i = 0; i < options.shockwaves.length; i++) {
+      const sw = options.shockwaves[i];
+      if (
+        sw.x + sw.maxRadius < view.minX ||
+        sw.x - sw.maxRadius > view.maxX ||
+        sw.y + sw.maxRadius < view.minY ||
+        sw.y - sw.maxRadius > view.maxY
+      ) {
+        continue;
+      }
+      const prog = 1 - Math.max(0, sw.lifetime / sw.maxLifetime);
+      const eased = 1 - Math.pow(1 - prog, 2);
+      const curR = Math.max(4, sw.maxRadius * eased);
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, (1 - prog) * 0.85);
+      ctx.strokeStyle = sw.color;
+      ctx.lineWidth = Math.max(1, (sw.lineWidth ?? 2.8) * (1 - prog * 0.6));
+      ctx.beginPath();
+      ctx.arc(sw.x, sw.y, curR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // Muzzle Flashes
+  if (options.muzzleFlashes) {
+    for (let i = 0; i < options.muzzleFlashes.length; i++) {
+      const mf = options.muzzleFlashes[i];
+      if (mf.x < view.minX || mf.x > view.maxX || mf.y < view.minY || mf.y > view.maxY) continue;
+      const frac = Math.max(0, mf.lifetime / mf.maxLifetime);
+      ctx.save();
+      ctx.translate(mf.x, mf.y);
+      ctx.rotate(mf.angle);
+      ctx.globalAlpha = frac;
+      ctx.fillStyle = mf.color;
+      ctx.beginPath();
+      ctx.ellipse(4 * frac, 0, 7 * frac, 3.2 * frac, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(0, 0, 3 * frac, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
   // Projectiles & Melee Slash Arcs
   for (let i = 0; i < projectiles.length; i++) {
     const p = projectiles[i];
@@ -274,10 +484,10 @@ export function renderCombatVfx(
       ctx.stroke();
     } else {
       const pSpeed = Math.hypot(p.vx, p.vy) || 1;
-      const tailX = p.x - (p.vx / pSpeed) * 14;
-      const tailY = p.y - (p.vy / pSpeed) * 14;
+      const tailX = p.x - (p.vx / pSpeed) * 16;
+      const tailY = p.y - (p.vy / pSpeed) * 16;
       ctx.strokeStyle = p.color || '#38bdf8';
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 3.2;
       ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(tailX, tailY);
@@ -313,11 +523,11 @@ export function renderCombatVfx(
     ctx.strokeRect(-bar.w / 2, -bar.h / 2, bar.w, bar.h);
 
     ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-    ctx.fillRect(-45, -bar.h / 2 - 18, 90, 15);
-    ctx.font = '800 9.5px Outfit, monospace';
+    ctx.fillRect(-34, -bar.h / 2 - 17, 68, 14);
+    ctx.font = '700 9.5px JetBrains Mono, monospace';
     ctx.fillStyle = '#38bdf8';
     ctx.textAlign = 'center';
-    ctx.fillText(`🛡️ ${bar.lifetime.toFixed(1)}s`, 0, -bar.h / 2 - 7);
+    ctx.fillText(`${bar.lifetime.toFixed(1)}s`, 0, -bar.h / 2 - 7);
     ctx.restore();
   }
 
@@ -343,11 +553,11 @@ export function renderCombatVfx(
     if (ft.x < view.minX || ft.x > view.maxX || ft.y < view.minY || ft.y > view.maxY) continue;
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, ft.alpha));
-    ctx.font = `900 ${ft.size || 11}px Outfit, sans-serif`;
+    ctx.font = `900 ${ft.size || 10.5}px Outfit, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.strokeStyle = '#05070f';
-    ctx.lineWidth = 3.5;
+    ctx.lineWidth = 3.2;
     ctx.strokeText(ft.text, ft.x, ft.y);
     ctx.fillStyle = ft.color;
     ctx.fillText(ft.text, ft.x, ft.y);
@@ -379,24 +589,24 @@ export function renderScreenOverlays(
   combatFeed: CombatEvent[],
   options: RenderOptions
 ): void {
-  if (options.focusFx) {
+  if (options.focusFx && !options.focusFx.silent) {
     const ffx = options.focusFx;
     const sx = (ffx.x - camCenterX) * camZoom + virtualW / 2;
     const sy = (ffx.y - camCenterY) * camZoom + virtualH / 2;
     ctx.save();
     const grad = ctx.createRadialGradient(sx, sy, 65, sx, sy, Math.max(virtualW, virtualH) * 0.55);
     grad.addColorStop(0, 'rgba(0,0,0,0)');
-    grad.addColorStop(1, 'rgba(2, 6, 23, 0.52)');
+    grad.addColorStop(1, 'rgba(2, 6, 23, 0.5)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, virtualW, virtualH);
 
-    ctx.font = '900 18px Outfit, sans-serif';
+    ctx.font = '900 17px Outfit, sans-serif';
     ctx.textAlign = 'center';
     ctx.strokeStyle = '#020617';
-    ctx.lineWidth = 5;
-    ctx.strokeText(ffx.text, virtualW / 2, 108);
+    ctx.lineWidth = 4.5;
+    ctx.strokeText(ffx.text, virtualW / 2, 102);
     ctx.fillStyle = ffx.color;
-    ctx.fillText(ffx.text, virtualW / 2, 108);
+    ctx.fillText(ffx.text, virtualW / 2, 102);
     ctx.restore();
   }
 
@@ -417,31 +627,34 @@ export function renderScreenOverlays(
     ctx.restore();
   }
 
-  if (combatFeed.length > 0) {
-    ctx.save();
-    const feedW = 240;
-    const feedX = virtualW - feedW - 14;
-    let feedY = 64;
+  // Single-Slot Unobtrusive Live Event Chip (replaces noisy 4-row stacked feed)
+  if (combatFeed.length > 0 && !options.focusFx) {
+    const ev = combatFeed[0];
+    const nowT = options.raceTimeNow ?? ev.time;
+    const age = nowT - ev.time;
+    if (age >= 0 && age < 2.6) {
+      const alpha = age > 2.0 ? Math.max(0, (2.6 - age) / 0.6) : 1;
+      const text = (ev.text || '').slice(0, 40);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.font = '700 11px Plus Jakarta Sans, sans-serif';
+      const tw = Math.min(280, ctx.measureText(text).width + 24);
+      const fx = virtualW / 2 - tw / 2;
+      const fy = options.isTvMode ? 70 : 54;
 
-    const recentEvents = combatFeed.slice(0, 4);
-    for (let i = 0; i < recentEvents.length; i++) {
-      const ev = recentEvents[i];
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.84)';
-      ctx.fillRect(feedX, feedY, feedW, 20);
-      ctx.fillStyle = ev.color || '#38bdf8';
-      ctx.fillRect(feedX, feedY, 3, 20);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+      ctx.fillStyle = 'rgba(9, 13, 24, 0.84)';
+      ctx.beginPath();
+      ctx.roundRect(fx, fy, tw, 24, 8);
+      ctx.fill();
+      ctx.strokeStyle = `${ev.color || '#38bdf8'}66`;
       ctx.lineWidth = 1;
-      ctx.strokeRect(feedX, feedY, feedW, 20);
+      ctx.stroke();
 
-      ctx.font = '700 10px Outfit, sans-serif';
       ctx.fillStyle = '#f8fafc';
-      ctx.textAlign = 'left';
+      ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText((ev.text || '').slice(0, 36), feedX + 9, feedY + 10);
-
-      feedY += 23;
+      ctx.fillText(text, virtualW / 2, fy + 12);
+      ctx.restore();
     }
-    ctx.restore();
   }
 }

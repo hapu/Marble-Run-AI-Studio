@@ -89,6 +89,9 @@ export function createInitialMarbles(
       weaponUpgradeTimer: 0,
       aimAngle: 0,
       currentRoomId: 0,
+      aggroState: isPatientZero ? 'patrol' : undefined,
+      aggroTargetId: null,
+      trail: [],
     };
   });
 }
@@ -184,17 +187,95 @@ export function updateSmartCamera(
   const playerMarbles = marbles.filter((m) => !m.id.startsWith('npc_') && !m.gone);
 
   if (focusAnim) {
-    cam.x += (focusAnim.x - cam.x) * 0.18;
-    cam.y += (focusAnim.y - cam.y) * 0.18;
-    cam.zoom += (1.22 - cam.zoom) * 0.12;
-  } else if (mode === 'follow' && followedMarbleId) {
+    cam.x += (focusAnim.x - cam.x) * 0.16;
+    cam.y += (focusAnim.y - cam.y) * 0.16;
+    cam.zoom += (1.24 - cam.zoom) * 0.11;
+    return;
+  }
+
+  if (mode === 'smart') {
+    const livingHumans = playerMarbles.filter((m) => !m.isZombie && !m.finished);
+    const activeZombies = marbles.filter((m) => m.isZombie && !m.gone);
+
+    if (livingHumans.length > 0) {
+      let bestAnchor = livingHumans[0];
+      let bestScore = -Infinity;
+
+      for (let i = 0; i < livingHumans.length; i++) {
+        const h = livingHumans[i];
+        const hx = h.renderX ?? h.x;
+        const hy = h.renderY ?? h.y;
+        let score = h.progressScore * 0.45;
+        if (h.id === followedMarbleId) score += 3.2;
+        if (h.hp <= 2) score += 2.8;
+
+        for (let z = 0; z < activeZombies.length; z++) {
+          const zmb = activeZombies[z];
+          const d = Math.hypot((zmb.renderX ?? zmb.x) - hx, (zmb.renderY ?? zmb.y) - hy);
+          if (d < 210) {
+            score += zmb.zombieType === 'boss' ? 5.5 : zmb.aggroState === 'alert' ? 2.4 : 1.1;
+          }
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestAnchor = h;
+        }
+      }
+
+      const ax = bestAnchor.renderX ?? bestAnchor.x;
+      const ay = bestAnchor.renderY ?? bestAnchor.y;
+      const cluster = [bestAnchor];
+      for (let i = 0; i < livingHumans.length; i++) {
+        const other = livingHumans[i];
+        if (other.id === bestAnchor.id) continue;
+        const ox = other.renderX ?? other.x;
+        const oy = other.renderY ?? other.y;
+        if (Math.hypot(ox - ax, oy - ay) < 380 && cluster.length < 4) {
+          cluster.push(other);
+        }
+      }
+
+      let minX = ax;
+      let maxX = ax;
+      let minY = ay;
+      let maxY = ay;
+      for (let i = 1; i < cluster.length; i++) {
+        const cx = cluster[i].renderX ?? cluster[i].x;
+        const cy = cluster[i].renderY ?? cluster[i].y;
+        if (cx < minX) minX = cx;
+        if (cx > maxX) maxX = cx;
+        if (cy < minY) minY = cy;
+        if (cy > maxY) maxY = cy;
+      }
+
+      const spanX = maxX - minX + 300;
+      const spanY = maxY - minY + 250;
+      const targetZoom = Math.max(0.78, Math.min(1.2, Math.min(virtualW / spanX, virtualH / spanY)));
+      cam.x += ((minX + maxX) / 2 - cam.x) * 0.11;
+      cam.y += ((minY + maxY) / 2 - cam.y) * 0.11;
+      cam.zoom += (targetZoom - cam.zoom) * 0.07;
+      return;
+    }
+
+    const fallback = leader || playerMarbles[0] || activeZombies[0];
+    if (fallback) {
+      const fx = fallback.renderX ?? fallback.x;
+      const fy = fallback.renderY ?? fallback.y;
+      cam.x += (fx - cam.x) * 0.1;
+      cam.y += (fy - cam.y) * 0.1;
+      cam.zoom += (1.02 - cam.zoom) * 0.07;
+    }
+    return;
+  }
+
+  if (mode === 'follow' && followedMarbleId) {
     const target = marbles.find((m) => m.id === followedMarbleId && !m.gone) || playerMarbles[0];
     if (target) {
       const tx = target.renderX ?? target.x;
       const ty = target.renderY ?? target.y;
       cam.x += (tx - cam.x) * 0.14;
       cam.y += (ty - cam.y) * 0.14;
-      cam.zoom += (1.08 - cam.zoom) * 0.08;
+      cam.zoom += (1.1 - cam.zoom) * 0.08;
     }
   } else if (mode === 'overview') {
     cam.x += (1250 - cam.x) * 0.08;

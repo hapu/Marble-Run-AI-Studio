@@ -41,8 +41,11 @@ export function renderCourse(
     renderSkylineBackdrop(ctx, virtualW, virtualH, camCenterX, camCenterY, raceTime);
   }
 
+  const shakeX = options.shakeOffset?.x ?? 0;
+  const shakeY = options.shakeOffset?.y ?? 0;
+
   ctx.save();
-  ctx.translate(virtualW / 2, virtualH / 2);
+  ctx.translate(virtualW / 2 + shakeX, virtualH / 2 + shakeY);
   ctx.scale(camZoom, camZoom);
   ctx.translate(-camCenterX, -camCenterY);
 
@@ -55,10 +58,20 @@ export function renderCourse(
     maxY: camCenterY + halfViewH + 180,
   };
 
-  renderLabyrinthGrid(ctx, course, view);
+  renderLabyrinthGrid(ctx, course, raceTime, view);
   renderZonesAndHazards(ctx, course, raceTime, view);
   renderWallsBumpersSpinners(ctx, course, raceTime, view);
-  renderMarbles(ctx, marbles, raceTime, view, options.followedMarbleId);
+  renderMarbles(
+    ctx,
+    marbles,
+    raceTime,
+    view,
+    options.followedMarbleId,
+    options.hoveredMarbleId,
+    course,
+    options.nameplateRevealId,
+    options.nameplateRevealAlpha
+  );
   renderCombatVfx(ctx, projectiles, barricades, particles, floatingTexts, raceTime, view, options);
 
   ctx.restore();
@@ -71,6 +84,6 @@ export function renderCourse(
     camCenterY,
     camZoom,
     combatFeed,
-    options
+    { ...options, raceTimeNow: raceTime }
   );
 }

@@ -39,6 +39,7 @@ export function applyHumanDamage(ctx: PhysicsContext, human: Marble, attackerZom
 
   if (ctx.followedMarbleId === human.id) {
     ctx.pendingDamageFlash = true;
+    ctx.pendingShake = Math.max(ctx.pendingShake, 4.5);
   }
 
   if (human.hp <= 0) {
@@ -51,6 +52,9 @@ export function applyHumanDamage(ctx: PhysicsContext, human: Marble, attackerZom
     human.zForceMult = wSpec.forceMult;
     human.infectionTime = ctx.lastRaceTime;
     human.turnCooldownUntil = ctx.lastRaceTime + 1.5;
+    human.aggroState = 'alert';
+    human.aggroAlertAt = ctx.lastRaceTime;
+    human.aggroUntil = ctx.lastRaceTime + 2.5;
     if (ctx.currentCourse?.chunks[rIdx]) {
       human.infectedRoomName = ctx.currentCourse.chunks[rIdx].name;
     }
@@ -59,8 +63,10 @@ export function applyHumanDamage(ctx: PhysicsContext, human: Marble, attackerZom
     }
     sound.playInfection();
     ctx.addParticles(human.x, human.y, '#22c55e', 20, 5.5, 'slime');
+    ctx.addShockwave(human.x, human.y, 64, '#22c55e', 0.42, 3.2);
+    ctx.pendingShake = Math.max(ctx.pendingShake, 5);
     ctx.addFloatingText(human.x, human.y - 16, '☣ ¡INFECTADO!', '#4ade80');
-    ctx.addCombatEvent(`☣ ¡CONTAGIO! ${human.name} se volvió zombi`, '#4ade80');
+    ctx.addCombatEvent(`☣ ${human.name} se volvió zombi`, '#4ade80');
 
     const isFollowed = ctx.followedMarbleId === human.id;
     const firstInf = !ctx.highlightEvents.some((e) => e.kind === 'inf');
@@ -82,6 +88,7 @@ export function applyHumanDamage(ctx: PhysicsContext, human: Marble, attackerZom
   } else {
     sound.playHeartLost();
     ctx.addParticles(human.x, human.y, '#ef4444', 8, 3.5);
+    ctx.addShockwave(human.x, human.y, 34, '#ef4444', 0.28, 2.2);
     ctx.addFloatingText(human.x, human.y - 14, '-1 HP!', '#ef4444');
     if (attackerZombie && hBody) {
       const zBody = ctx.marbleBodies.get(attackerZombie.id);
@@ -127,11 +134,14 @@ export function damageZombie(
     attacker.kills = (attacker.kills || 0) + 1;
     sound.playInfection();
     ctx.addParticles(z.x, z.y, '#84cc16', 14, 5.5, 'slime');
+    ctx.addShockwave(z.x, z.y, 48, '#84cc16', 0.34, 2.5);
 
     const zt = z.zombieType || 'walker';
     if (zt === 'tank' || zt === 'boss') {
       const title = zt === 'boss' ? '👑 ¡JEFE ELIMINADO!' : '💀 ¡TANQUE ABATIDO!';
       ctx.addParticles(z.x, z.y, '#fde047', 18, 6.5, 'spark');
+      ctx.addShockwave(z.x, z.y, zt === 'boss' ? 92 : 68, '#fde047', 0.45, 3.5);
+      ctx.pendingShake = Math.max(ctx.pendingShake, zt === 'boss' ? 6 : 3.5);
       ctx.addFloatingText(z.x, z.y - 18, title, '#fde047');
       ctx.addCombatEvent(`${title} por ${attacker.name}`, '#fde047');
       ctx.highlightEvents.push({
@@ -152,6 +162,15 @@ export function damageZombie(
     } else {
       ctx.addFloatingText(z.x, z.y - 14, '💀 +1 BAJA', '#a3e635');
     }
+  } else if (z.aggroState !== 'alert') {
+    // Shot zombies immediately aggro onto the attacker!
+    z.aggroState = 'alert';
+    z.aggroTargetId = attacker.id;
+    z.aggroAlertAt = ctx.lastRaceTime;
+    z.aggroUntil = ctx.lastRaceTime + 3.5;
+  } else {
+    z.aggroTargetId = attacker.id;
+    z.aggroUntil = ctx.lastRaceTime + 3.5;
   }
 }
 
@@ -177,9 +196,13 @@ export function processCollisions(ctx: PhysicsContext, marbles: Marble[]): void 
         const dx = p.x - bMeta.x * INV_SCALE;
         const dy = p.y - bMeta.y * INV_SCALE;
         const d = Math.hypot(dx, dy) || 1;
-        const kick = 8.2 * Math.max(0.85, bMeta.bounce);
+        const kick = Math.min(11.0, 7.8 * Math.max(0.85, bMeta.bounce));
         mBody.setLinvel({ x: (dx / d) * kick, y: (dy / d) * kick }, true);
         sound.playBumper(480 + Math.random() * 160);
+        const m = marbles.find((x) => x.id === mMeta.marbleId);
+        if (m) {
+          ctx.addParticles(m.x, m.y, '#fbbf24', 5, 3.4, 'spark');
+        }
       }
       return;
     }
@@ -204,6 +227,9 @@ export function processCollisions(ctx: PhysicsContext, marbles: Marble[]): void 
             const rel = Math.hypot(va.x - vb.x, va.y - vb.y);
             if (rel > 2.4) {
               sound.playImpact(rel * 0.45, 1.0, 380);
+              if (rel > 4.6) {
+                ctx.addParticles((mA.x + mB.x) / 2, (mA.y + mB.y) / 2, '#e2e8f0', 3, 2.5, 'spark');
+              }
             }
           }
         }
@@ -220,6 +246,12 @@ export function processCollisions(ctx: PhysicsContext, marbles: Marble[]): void 
         const spd = Math.hypot(v.x, v.y);
         if (spd > 2.6) {
           sound.playImpact(spd * 0.38, 1.0, 360);
+          if (spd > 5.0) {
+            const m = marbles.find((x) => x.id === mMeta.marbleId);
+            if (m) {
+              ctx.addParticles(m.x, m.y, m.isZombie ? '#84cc16' : m.color, 3, 2.4, 'spark');
+            }
+          }
         }
       }
     }
@@ -257,8 +289,9 @@ export function updateMarblesBehavior(
     }
 
     if (m.isZombie) {
+      const visionRange = m.zombieType === 'boss' ? 400 : m.zombieType === 'runner' ? 360 : 320;
       let nearestHuman: Marble | null = null;
-      let minHDist = 360;
+      let minHDist = visionRange;
       for (let j = 0; j < marbles.length; j++) {
         const other = marbles[j];
         if (!other.isZombie && !other.finished && !other.gone) {
@@ -269,17 +302,64 @@ export function updateMarblesBehavior(
           }
         }
       }
+
+      // Check existing aggro memory target if still active
+      let targetHuman: Marble | null = nearestHuman;
+      let targetDist = minHDist;
+      if (!targetHuman && m.aggroState === 'alert' && m.aggroTargetId && (m.aggroUntil || 0) > raceTime) {
+        const locked = marbles.find(
+          (other) => other.id === m.aggroTargetId && !other.isZombie && !other.finished && !other.gone
+        );
+        if (locked) {
+          const dLocked = Math.hypot(locked.x - m.x, locked.y - m.y);
+          if (dLocked < 480) {
+            targetHuman = locked;
+            targetDist = dLocked;
+          }
+        }
+      }
+
       const fMult = m.zForceMult ?? 1.0;
-      if (nearestHuman) {
-        const dirX = (nearestHuman.x - m.x) / (minHDist || 1);
-        const dirY = (nearestHuman.y - m.y) / (minHDist || 1);
-        body.addForce({ x: dirX * 14.5 * fMult * mass, y: dirY * 14.5 * fMult * mass }, true);
-      } else if (room && !m.id.startsWith('npc_')) {
-        const targetPt = getRoomExitTarget(course, room);
-        const dx = targetPt.x - m.x;
-        const dy = targetPt.y - m.y;
-        const d = Math.hypot(dx, dy) || 1;
-        body.addForce({ x: (dx / d) * 10.5 * fMult * mass, y: (dy / d) * 10.5 * fMult * mass }, true);
+      if (targetHuman) {
+        const wasPatrol = m.aggroState !== 'alert';
+        m.aggroState = 'alert';
+        m.aggroTargetId = targetHuman.id;
+        m.aggroUntil = raceTime + 3.0;
+        if (wasPatrol) {
+          m.aggroAlertAt = raceTime;
+          ctx.addShockwave(m.x, m.y, 44, '#f43f5e', 0.32, 2.0);
+        }
+
+        const isLunging = m.aggroAlertAt !== undefined && raceTime - m.aggroAlertAt < 1.0;
+        const aggroBoost = isLunging ? 1.25 : 1.0;
+        const dirX = (targetHuman.x - m.x) / (targetDist || 1);
+        const dirY = (targetHuman.y - m.y) / (targetDist || 1);
+        body.addForce(
+          {
+            x: dirX * 14.8 * fMult * aggroBoost * mass,
+            y: dirY * 14.8 * fMult * aggroBoost * mass,
+          },
+          true
+        );
+      } else {
+        m.aggroState = 'patrol';
+        m.aggroTargetId = null;
+        if (room && !m.id.startsWith('npc_')) {
+          const targetPt = getRoomExitTarget(course, room);
+          const dx = targetPt.x - m.x;
+          const dy = targetPt.y - m.y;
+          const d = Math.hypot(dx, dy) || 1;
+          body.addForce({ x: (dx / d) * 10.5 * fMult * mass, y: (dy / d) * 10.5 * fMult * mass }, true);
+        } else if (room) {
+          // Gentle patrol orbit around room center
+          const patrolT = raceTime * 1.4 + idx * 1.7;
+          const patrolX = room.x + ROOM_SIZE / 2 + Math.cos(patrolT) * 90;
+          const patrolY = room.y + ROOM_SIZE / 2 + Math.sin(patrolT) * 90;
+          const dx = patrolX - m.x;
+          const dy = patrolY - m.y;
+          const d = Math.hypot(dx, dy) || 1;
+          body.addForce({ x: (dx / d) * 5.2 * fMult * mass, y: (dy / d) * 5.2 * fMult * mass }, true);
+        }
       }
     } else {
       if (room) {
@@ -340,6 +420,7 @@ export function updateMarblesBehavior(
             sound.playImpact(7, 1.0, 220);
             const nx = Math.cos(aim);
             const ny = Math.sin(aim);
+            ctx.addMuzzleFlash(m.x + nx * (m.radius + 4), m.y + ny * (m.radius + 4), aim, wSpec.color);
             ctx.projectiles.push({
               id: `melee_${Math.random().toString(36).substring(2, 7)}`,
               x1: m.x,
@@ -357,6 +438,28 @@ export function updateMarblesBehavior(
             damageZombie(ctx, nearestZombie, wSpec.damage, nx * wSpec.knockback, ny * wSpec.knockback, m);
           } else {
             sound.playLaserShot();
+            const muzzleX = m.x + Math.cos(aim) * (m.radius + 5);
+            const muzzleY = m.y + Math.sin(aim) * (m.radius + 5);
+            ctx.addMuzzleFlash(muzzleX, muzzleY, aim, wSpec.color);
+            ctx.addParticles(muzzleX, muzzleY, wSpec.color, 3, 2.8, 'plasma');
+
+            // Gunshot noise alerts zombies within 440px radius
+            for (let zIdx = 0; zIdx < marbles.length; zIdx++) {
+              const zb = marbles[zIdx];
+              if (!zb.isZombie || zb.gone || zb.finished) continue;
+              const zd = Math.hypot(zb.x - m.x, zb.y - m.y);
+              if (zd < 440) {
+                const wasPatrol = zb.aggroState !== 'alert';
+                zb.aggroState = 'alert';
+                zb.aggroTargetId = m.id;
+                zb.aggroUntil = raceTime + 3.2;
+                if (wasPatrol) {
+                  zb.aggroAlertAt = raceTime;
+                  ctx.addShockwave(zb.x, zb.y, 44, '#f43f5e', 0.32, 2.0);
+                }
+              }
+            }
+
             const pellets = wSpec.pellets || 1;
             const pSpeed = wSpec.id === 'rifle' ? 25 : 19;
             const spreadArc = wSpec.id === 'shotgun' ? 0.34 : 0.22;
@@ -427,10 +530,10 @@ export function updateMarblesBehavior(
       if (boosted) break;
     }
 
-    // Anti-stuck safeguard
+    // Anti-stuck safeguard (tuned for 240Hz fixed timestep: 180 ticks = 0.75s)
     if (!inElevator) {
       const moveDist = Math.hypot(m.x - (m.lastX ?? m.x), m.y - (m.lastY ?? m.y));
-      if (moveDist < 0.08) {
+      if (moveDist < 0.05) {
         m.stuckFrames = (m.stuckFrames || 0) + 1;
       } else {
         m.stuckFrames = 0;
@@ -438,13 +541,13 @@ export function updateMarblesBehavior(
         m.lastY = m.y;
       }
 
-      if ((m.stuckFrames || 0) > 220 && room && !m.isZombie) {
+      if ((m.stuckFrames || 0) > 180 && room && !m.isZombie) {
         m.stuckFrames = 0;
         const exitPt = getRoomExitTarget(course, room);
         const dirX = exitPt.x - m.x;
         const dirY = exitPt.y - m.y;
         const d = Math.hypot(dirX, dirY) || 1;
-        body.setLinvel({ x: (dirX / d) * 8.0, y: (dirY / d) * 8.0 - 2.0 }, true);
+        body.setLinvel({ x: (dirX / d) * 7.8, y: (dirY / d) * 7.8 - 1.5 }, true);
         ctx.addParticles(m.x, m.y, '#38bdf8', 8, 3);
       }
     }
@@ -516,6 +619,18 @@ export function updateProjectilesAndFx(
     pt.lifetime -= effectiveDt;
     pt.alpha = Math.max(0, pt.lifetime / pt.maxLifetime);
     if (pt.lifetime <= 0) ctx.particles.splice(i, 1);
+  }
+
+  for (let i = ctx.shockwaves.length - 1; i >= 0; i--) {
+    const sw = ctx.shockwaves[i];
+    sw.lifetime -= effectiveDt;
+    if (sw.lifetime <= 0) ctx.shockwaves.splice(i, 1);
+  }
+
+  for (let i = ctx.muzzleFlashes.length - 1; i >= 0; i--) {
+    const mf = ctx.muzzleFlashes[i];
+    mf.lifetime -= effectiveDt;
+    if (mf.lifetime <= 0) ctx.muzzleFlashes.splice(i, 1);
   }
 
   for (let i = ctx.floatingTexts.length - 1; i >= 0; i--) {

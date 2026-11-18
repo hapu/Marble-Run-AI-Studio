@@ -4,6 +4,8 @@ import {
   CourseData,
   Projectile,
   CombatParticle,
+  ShockwaveEffect,
+  MuzzleFlash,
   FloatingText,
   TemporaryBarricade,
   CombatEvent,
@@ -47,6 +49,8 @@ export interface PhysicsContext {
   activeChunkIndices: number[];
   projectiles: Projectile[];
   particles: CombatParticle[];
+  shockwaves: ShockwaveEffect[];
+  muzzleFlashes: MuzzleFlash[];
   floatingTexts: FloatingText[];
   barricades: TemporaryBarricade[];
   combatFeed: CombatEvent[];
@@ -54,6 +58,7 @@ export interface PhysicsContext {
   replayFrames: ReplayFrame[];
   pendingFocus: FocusTrigger | null;
   pendingDamageFlash: boolean;
+  pendingShake: number;
   followedMarbleId: string | null;
   roomDamageCounts: Record<number, number>;
 
@@ -65,6 +70,8 @@ export interface PhysicsContext {
   pendingZombieSpawns: PendingZombieSpawn[];
 
   addParticles(x: number, y: number, color: string, count?: number, speed?: number, type?: CombatParticle['type']): void;
+  addShockwave(x: number, y: number, maxRadius: number, color: string, duration?: number, lineWidth?: number): void;
+  addMuzzleFlash(x: number, y: number, angle: number, color: string): void;
   addFloatingText(x: number, y: number, text: string, color: string): void;
   addCombatEvent(text: string, color: string): void;
 }

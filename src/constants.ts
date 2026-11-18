@@ -27,9 +27,11 @@ export const DEFAULT_MARBLE_COLORS: MarbleColorDef[] = [
   { id: 'black', name: 'Negro Obsidiana', color: '#242734', border: '#64748b', mass: 1.35, restitution: 0.38, materialType: 'dense' },
 ];
 
-export const SIMULATION_SPEEDS = [0.5, 1, 2, 4] as const;
+export const SIMULATION_SPEEDS = [0.5, 0.75, 1, 2] as const;
+export const DEFAULT_SIM_SPEED = 0.75;
 
 export const CAMERA_MODES = [
+  { id: 'smart', label: 'Inteligente', description: 'Enfoque automático en la acción' },
   { id: 'follow', label: 'Seguir', description: 'Siguiendo Canica' },
   { id: 'half_pack', label: 'Grupo', description: 'Mitad del Grupo (Auto)' },
   { id: 'leader', label: 'Líder', description: 'Líder de Carrera' },
